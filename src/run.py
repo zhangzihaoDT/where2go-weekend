@@ -113,6 +113,15 @@ def main():
     district_map = {d["district_id"]: d for d in district_config["districts"]}
     print(f"      已加载 {len(district_map)} 个街区配置")
 
+    for did, dcfg in district_map.items():
+        tags = dcfg.get("tags", [])
+        tag_str = " ".join(tags)
+        has_address = bool(dcfg.get("address", "").strip()) if "address" in dcfg else False
+        has_source = "coordinate_source" in dcfg
+        if "滨江岸线" in tag_str and (not has_address or not has_source):
+            print(f"      ⚠ [location-warning] {did} is tagged as riverfront "
+                  f"but has no address or coordinate_source.")
+
     print("[2/6] 采集 POI 快照...")
 
     with open(budget_path, encoding="utf-8") as f:

@@ -21,8 +21,13 @@ districts:
   - district_id: yangpu_binjiang
     name: 杨浦滨江
     city: 上海
-    center_lng: 121.514
-    center_lat: 31.270
+    address: 上海市杨浦区安浦路461号杨浦滨江人民城市建设规划展示馆
+    center_lng: 121.537361
+    center_lat: 31.253250
+    coordinate_source: amap_geocode
+    coordinate_verified: true
+    previous_center_lng: 121.514
+    previous_center_lat: 31.270
     radius_m: 800
     tags:
       - 滨江岸线

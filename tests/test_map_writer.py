@@ -3,6 +3,7 @@ import sys
 import unittest
 import tempfile
 import csv
+from unittest.mock import patch
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
@@ -203,6 +204,12 @@ class TestAmapJsMap(unittest.TestCase):
                 content = f.read()
             self.assertIn("AMap.Circle", content)
 
+    @patch.dict(os.environ, {
+        "AMAP_JS_API_KEY": "",
+        "AMAP_SECURITY_JS_CODE": "",
+        "AMAP_API_KEY": os.environ.get("AMAP_API_KEY", ""),
+        "AMAP_API_SECRET": os.environ.get("AMAP_API_SECRET", ""),
+    }, clear=False)
     def test_has_key_warning_when_no_key(self):
         with tempfile.TemporaryDirectory() as tmp:
             sp = os.path.join(tmp, "snap.csv")
@@ -210,20 +217,11 @@ class TestAmapJsMap(unittest.TestCase):
             dp = os.path.join(tmp, "dist.yaml")
             _make_districts(dp)
             out = os.path.join(tmp, "map.html")
-            # Remove env keys for test
-            old_js = os.environ.pop("AMAP_JS_API_KEY", None)
-            old_sc = os.environ.pop("AMAP_SECURITY_JS_CODE", None)
-            try:
-                generate_amap_js_map(sp, dp, out, "2026-07-08", "2026-07-11")
-                with open(out) as f:
-                    content = f.read()
-                self.assertIn("缺少 AMAP_JS_API_KEY", content)
-                self.assertIn("NO_KEY", content)
-            finally:
-                if old_js is not None:
-                    os.environ["AMAP_JS_API_KEY"] = old_js
-                if old_sc is not None:
-                    os.environ["AMAP_SECURITY_JS_CODE"] = old_sc
+            generate_amap_js_map(sp, dp, out, "2026-07-08", "2026-07-11")
+            with open(out) as f:
+                content = f.read()
+            self.assertIn("缺少 AMAP_JS_API_KEY", content)
+            self.assertIn("NO_KEY", content)
 
     def test_empty_poi_still_generates(self):
         with tempfile.TemporaryDirectory() as tmp:
