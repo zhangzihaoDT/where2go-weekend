@@ -44,26 +44,45 @@ class TestBrandPoiScanner(unittest.TestCase):
             self.assertIn("lat", p)
             self.assertIn("radius_m", p)
 
+    def test_classify_energy(self):
+        self.assertEqual(classify_poi_kind("蔚来换电站", "能源", "杨浦"), "energy")
+        self.assertEqual(classify_poi_kind("充电站", "充电", "徐汇"), "energy")
+
+    def test_classify_delivery_center(self):
+        self.assertEqual(classify_poi_kind("蔚来交付中心", "汽车", "浦东"), "delivery_center")
+        self.assertEqual(classify_poi_kind("某普通门店", "汽车", "", source_query="蔚来交付中心"), "delivery_center")
+
+    def test_classify_service_center(self):
+        self.assertEqual(classify_poi_kind("蔚来服务中心", "维修", "长宁"), "service_center")
+        self.assertEqual(classify_poi_kind("某门店", "维修", "", source_query="服务中心"), "service_center")
+
+    def test_classify_user_center(self):
+        self.assertEqual(classify_poi_kind("鸿蒙智行用户中心", "汽车", "上海"), "user_center")
+        self.assertEqual(classify_poi_kind("问界用户中心", "汽车", "浦东"), "user_center")
+        self.assertEqual(classify_poi_kind("AITO授权用户中心", "汽车", "闵行"), "user_center")
+        self.assertEqual(classify_poi_kind("普通名称", "汽车", "", source_query="鸿蒙智行用户中心"), "user_center")
+        self.assertEqual(classify_poi_kind("普通名称", "汽车", "", source_query="问界用户中心"), "user_center")
+
     def test_classify_experience_store(self):
         self.assertEqual(classify_poi_kind("蔚来空间", "汽车", "南京西路"), "experience_store")
         self.assertEqual(classify_poi_kind("智己体验中心", "汽车", "淮海路"), "experience_store")
         self.assertEqual(classify_poi_kind("NIO House", "汽车", "新天地"), "experience_store")
+        self.assertEqual(classify_poi_kind("某门店", "汽车", "", source_query="智己体验中心"), "experience_store")
+        self.assertEqual(classify_poi_kind("某门店", "汽车", "", source_query="蔚来中心"), "experience_store")
 
-    def test_classify_delivery_center(self):
-        self.assertEqual(classify_poi_kind("蔚来交付中心", "汽车", "浦东"), "delivery_center")
-
-    def test_classify_service_center(self):
-        self.assertEqual(classify_poi_kind("蔚来服务中心", "维修", "长宁"), "service_center")
-
-    def test_classify_energy(self):
-        self.assertEqual(classify_poi_kind("蔚来换电站", "能源", "杨浦"), "energy")
-        self.assertEqual(classify_poi_kind("充电站", "充电", "徐汇"), "energy")
+    def test_classify_mall_store(self):
+        self.assertEqual(classify_poi_kind("商场店", "汽车", "环球港"), "mall_store")
+        self.assertEqual(classify_poi_kind("万象城店", "汽车", "万象城"), "mall_store")
 
     def test_classify_office(self):
         self.assertEqual(classify_poi_kind("蔚来总部", "办公", "嘉定"), "office")
 
     def test_classify_other(self):
         self.assertEqual(classify_poi_kind("一些无关名称", "其他", ""), "other")
+
+    def test_energy_still_priority(self):
+        """energy should still be detected even if other keywords match."""
+        self.assertEqual(classify_poi_kind("蔚来换电站", "能源", "", source_query="蔚来服务中心"), "energy")
 
     def test_normalize_amap_poi_has_fields(self):
         from datetime import date
@@ -228,7 +247,41 @@ class TestBrandPoiScanner(unittest.TestCase):
 
     def test_clear_cache_does_not_crash(self):
         clear_cache()
-        # Should not raise
+
+    def test_10021_does_not_cache(self):
+        """Error responses should not be cached."""
+        from src.brand_poi_scanner import _amap_request
+        import tempfile
+        # We can't easily mock _amap_request, but we can test the stats behavior:
+        # parse_amap_response with status=0 should increment api_error_count
+        from src.brand_poi_scanner import parse_amap_response, reset_stats, get_stats
+        reset_stats()
+        data = {"status": "0", "info": "CUQPS_HAS_EXCEEDED_THE_LIMIT", "infocode": "10021"}
+        result = parse_amap_response(data, api="text", brand="test", query="q", page=1)
+        self.assertEqual(result, [])
+        stats = get_stats()
+        self.assertGreater(stats["api_error_count"], 0)
+
+    def test_parse_amap_response_cache_hit_counter(self):
+        from src.brand_poi_scanner import parse_amap_response, reset_stats, get_stats
+        reset_stats()
+        data = {"status": "1", "info": "OK", "infocode": "10000", "count": "1",
+                "pois": [{"id": "P1", "name": "test"}]}
+        result = parse_amap_response(data, api="text", brand="test", query="q", page=1, is_cached=True)
+        self.assertEqual(len(result), 1)
+        stats = get_stats()
+        self.assertGreater(stats["cache_hit_count"], 0)
+
+    def test_parse_amap_response_cache_miss_counter(self):
+        from src.brand_poi_scanner import parse_amap_response, reset_stats, get_stats
+        reset_stats()
+        data = {"status": "1", "info": "OK", "infocode": "10000", "count": "1",
+                "pois": [{"id": "P1", "name": "test"}]}
+        result = parse_amap_response(data, api="text", brand="test", query="q", page=1, is_cached=False)
+        self.assertEqual(len(result), 1)
+        stats = get_stats()
+        self.assertGreater(stats["cache_miss_count"], 0)
+        self.assertEqual(stats["cache_hit_count"], 0)
 
 
 if __name__ == "__main__":

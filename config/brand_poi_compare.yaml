@@ -14,7 +14,7 @@ amap:
   extensions: all
   retry: 3
   timeout_seconds: 10
-  sleep_seconds: 0.2
+  sleep_seconds: 1.0
   cache_enabled: true
   cache_dir: data/cache/amap_brand_poi_raw
 

@@ -207,6 +207,7 @@ if (allMarkers.length > 0) {{
         "experience_store": "体验中心",
         "delivery_center": "交付中心",
         "service_center": "服务中心",
+        "user_center": "用户中心",
         "mall_store": "商场店",
         "other": "其他",
     }
@@ -283,10 +284,11 @@ def generate_brand_poi_report(
     for r in poi_rows:
         by_brand[r.get("brand_id", "unknown")].append(r)
 
-    kind_order = ["experience_store", "delivery_center", "service_center", "mall_store", "other"]
+    kind_order = ["experience_store", "delivery_center", "service_center", "user_center", "mall_store", "other"]
     kind_labels = {
         "experience_store": "体验中心", "delivery_center": "交付中心",
-        "service_center": "服务中心", "mall_store": "商场店", "other": "其他",
+        "service_center": "服务中心", "user_center": "用户中心",
+        "mall_store": "商场店", "other": "其他",
     }
 
     lines = []

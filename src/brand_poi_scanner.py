@@ -18,9 +18,16 @@ import yaml
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCAN_MODES = ("text_city_first", "text_city_only", "around_fallback", "grid_around")
 
-# Module-level debug flag
+# Module-level flags
 _debug_api = False
 _error_cache = False
+_stats = {
+    "api_success_count": 0,
+    "api_error_count": 0,
+    "qps_limited_count": 0,
+    "cache_hit_count": 0,
+    "cache_miss_count": 0,
+}
 
 
 def set_debug(val: bool = True):
@@ -31,6 +38,15 @@ def set_debug(val: bool = True):
 def set_error_cache(val: bool = True):
     global _error_cache
     _error_cache = val
+
+
+def reset_stats():
+    global _stats
+    _stats = {k: 0 for k in _stats}
+
+
+def get_stats() -> dict:
+    return dict(_stats)
 
 
 def _load_config() -> dict:
@@ -100,18 +116,41 @@ def _safe_str(val) -> str:
     return str(val) if val is not None else ""
 
 
-def classify_poi_kind(name: str, poi_type: str, address: str) -> str:
+def classify_poi_kind(
+    name: str, poi_type: str, address: str,
+    source_query: str = "",
+    brand_id: str = "",
+) -> str:
     text = _safe_str(name) + " " + _safe_str(poi_type) + " " + _safe_str(address)
-    if any(k in text for k in ("体验中心", "体验店", "中心店", "NIO House", "NIO Space", "空间")):
-        return "experience_store"
-    if any(k in text for k in ("交付", "delivery")):
-        return "delivery_center"
-    if any(k in text for k in ("服务中心", "维修", "售后", "service")):
-        return "service_center"
-    if "中心" in text and any(k in text for k in ("商场", "广场", "mall", "Mall", "购物")):
-        return "mall_store"
+    sq = _safe_str(source_query)
+    combined = text + " " + sq
+
+    # 1. energy first
     if any(k in text for k in ("换电", "充电", "超充", "能源", "power")):
         return "energy"
+
+    # 2. delivery_center
+    if "交付" in text or "交付" in sq:
+        return "delivery_center"
+
+    # 3. service_center
+    if any(k in combined for k in ("服务中心", "售后", "维修")):
+        return "service_center"
+
+    # 4. user_center
+    if any(k in combined for k in ("用户中心", "授权用户中心", "问界用户中心", "AITO授权用户中心")):
+        return "user_center"
+
+    # 5. experience_store
+    if any(k in combined for k in ("体验中心", "体验店", "蔚来空间", "蔚来中心", "智己汽车", "NIO House", "NIO Space")):
+        return "experience_store"
+
+    # 6. mall_store
+    mall_keywords = ("商场", "广场", "mall", "Mall", "购物中心", "百联", "龙湖",
+                     "万象城", "合生汇", "前滩太古里", "环球港")
+    if any(k in text for k in mall_keywords):
+        return "mall_store"
+
     if any(k in text for k in ("总部", "办公", "office")):
         return "office"
     return "other"
@@ -181,7 +220,8 @@ def normalize_amap_poi(poi: dict, brand: dict, query: str, scan_point: dict,
         "tel": _s(poi.get("tel")),
         "source_query": query,
         "matched_keywords": "|".join(matched),
-        "poi_kind": classify_poi_kind(poi_name, poi.get("type", ""), poi.get("address", "")),
+        "poi_kind": classify_poi_kind(poi_name, poi.get("type", ""), poi.get("address", ""),
+                                       source_query=query, brand_id=brand["brand_id"]),
         "raw_distance": poi.get("distance", ""),
         "scan_center_lng": scan_point["lng"],
         "scan_center_lat": scan_point["lat"],
@@ -202,7 +242,7 @@ def parse_amap_response(
     query: str,
     page: int,
     cache_path: Optional[str] = None,
-    show_key_prefix: Optional[str] = None,
+    is_cached: bool = False,
 ) -> list[dict]:
     status = data.get("status")
     info = data.get("info", "")
@@ -210,14 +250,13 @@ def parse_amap_response(
     count = data.get("count", "?")
     pois = data.get("pois")
 
-    if _debug_api:
-        key_info = f" key={show_key_prefix}..." if show_key_prefix else ""
-        cp_info = f" cache={cache_path}" if cache_path else ""
-        print(f"    [debug] api={api} brand={brand} query={query} page={page}{key_info}"
-              f"\n           status={status} info={info} infocode={infocode} count={count}"
-              f" pois_len={len(pois) if isinstance(pois, list) else 'NOT_A_LIST'}{cp_info}")
+    if is_cached:
+        _stats["cache_hit_count"] += 1
+    else:
+        _stats["cache_miss_count"] += 1
 
     if status != "1":
+        _stats["api_error_count"] += 1
         print(f"    [AMAP ERROR] query={query} api={api} status={status} info={info} infocode={infocode}")
         return []
 
@@ -225,11 +264,15 @@ def parse_amap_response(
         print(f"    [AMAP WARN] query={query} api={api} pois is not a list: {type(pois)}")
         return []
 
-    print(f"    status=1 info=OK count={count} pois={len(pois)}")
+    prefix = "    [cache] " if is_cached else "    "
+    print(f"{prefix}status=1 info=OK count={count} pois={len(pois)}")
     return pois
 
 
 # ── API call ──
+
+
+QUOTA_BACKOFF = [2, 5, 10]
 
 
 def _amap_request(url: str, params: dict, config: dict) -> Optional[dict]:
@@ -240,18 +283,29 @@ def _amap_request(url: str, params: dict, config: dict) -> Optional[dict]:
         sig = _sign_params(params, secret)
         params["sig"] = sig
     retry = config["amap"]["retry"]
-    sleep_s = config["amap"]["sleep_seconds"]
+    base_sleep = config["amap"]["sleep_seconds"]
     timeout = config["amap"].get("timeout_seconds", 10)
     for attempt in range(retry):
         try:
             resp = requests.get(url, params=params, timeout=timeout)
-            resp.raise_for_status()
-            return resp.json()
+            data = resp.json()
+            if data.get("infocode") == "10021":
+                _stats["qps_limited_count"] += 1
+                wait = QUOTA_BACKOFF[attempt] if attempt < len(QUOTA_BACKOFF) else 10
+                if _debug_api:
+                    print(f"    [rate-limit] attempt {attempt+1}/{retry}, waiting {wait}s...")
+                if attempt < retry - 1:
+                    time.sleep(wait)
+                    continue
+                return None
+            _stats["api_success_count"] += 1
+            return data
         except Exception as e:
+            _stats["api_error_count"] += 1
             if _debug_api:
                 print(f"    [debug] request failed attempt {attempt+1}: {e}")
             if attempt < retry - 1:
-                time.sleep(sleep_s)
+                time.sleep(base_sleep)
     return None
 
 
@@ -371,8 +425,8 @@ def _scan_text(
         cached = _read_cache(cpath) if config["amap"]["cache_enabled"] else None
 
         if cached is not None:
-            if _debug_api:
-                print(f"    [cache] loaded {len(cached)} items for {brand['display_name']} / {query} / page {page}")
+            _stats["cache_hit_count"] += 1
+            print(f"    [cache] status=ok pois={len(cached)} ({brand['display_name']} / {query} / page {page})")
             for item in cached:
                 row = normalize_amap_poi(item, brand, query, scan_point, crawl_date)
                 dk = _make_dedup_key(row)
@@ -391,19 +445,15 @@ def _scan_text(
             "extensions": config["amap"]["extensions"],
             "output": "json",
         }
-        if _debug_api:
-            key_prefix = api_key[:6] if api_key else "?"
-            print(f"    [debug] api=text brand={brand['display_name']} query={query} page={page} key={key_prefix}...")
 
         result = _amap_request(base_url, params, config)
         if result is None:
             print(f"    [AMAP ERROR] query={query} api=text — no response after retries")
             return
 
-        show_key = api_key[:6] if _debug_api else None
         pois = parse_amap_response(
             result, api="text", brand=brand["display_name"], query=query, page=page,
-            cache_path=cpath, show_key_prefix=show_key,
+            cache_path=cpath,
         )
         if not pois:
             return
@@ -443,8 +493,8 @@ def _scan_around(
 
         if cached is not None:
             sp["radius_m"] = sp.get("radius_m", 3500)
-            if _debug_api:
-                print(f"    [cache] loaded {len(cached)} items for {brand['display_name']} / {query} / {sp.get('name','?')}")
+            _stats["cache_hit_count"] += 1
+            print(f"    [cache] status=ok pois={len(cached)} ({brand['display_name']} / {query} / {sp.get('name','?')})")
             for item in cached:
                 row = normalize_amap_poi(item, brand, query, sp, crawl_date)
                 dk = _make_dedup_key(row)
@@ -466,11 +516,6 @@ def _scan_around(
         if config["amap"]["city_limit"]:
             params["city"] = config["city"]
             params["citylimit"] = "true"
-
-        if _debug_api:
-            key_prefix = api_key[:6] if api_key else "?"
-            print(f"    [debug] api=around brand={brand['display_name']} query={query} "
-                  f"point={sp.get('name','?')} page=1 key={key_prefix}...")
 
         page_items = []
         for page in range(1, max_pages + 1):
@@ -583,7 +628,15 @@ def scan_brand_pois(
             continue
         filtered.append(row)
 
+    s = _stats
     print(f"\n  总计: raw={len(all_rows)} → 去重+过滤: {len(filtered)}")
+    print(f"  API 请求成功: {s['api_success_count']}, 错误: {s['api_error_count']}, "
+          f"限流: {s['qps_limited_count']}, 缓存命中: {s['cache_hit_count']}, "
+          f"缓存未命中: {s['cache_miss_count']}")
+    if s['qps_limited_count'] > 0:
+        print(f"  ⚠  本次结果可能不完整（{s['qps_limited_count']} 次请求被限流），"
+              f"建议稍后不带 --clear-cache 重新运行以补齐。")
+    reset_stats()
     return filtered
 
 
