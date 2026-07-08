@@ -161,7 +161,7 @@ from src.brand_poi_analyzer import run_analyzer
 from src.brand_poi_snapshot import BrandPoiSnapshot
 snap = BrandPoiSnapshot("{snap_id}")
 rows = snap.read_csv()
-result = run_analyzer(rows, snap.city, snap.date_str, ".", ".", top_n=20)
+result = run_analyzer(rows, snap.city, snap.date_str, top_n=20)
 print(f"analyze OK: {{len(result['enriched_rows'])}} enriched rows")
 # slice (no API)
 out = "/tmp/_noapi_slice.csv"

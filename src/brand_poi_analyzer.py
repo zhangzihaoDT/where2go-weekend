@@ -746,8 +746,12 @@ def print_outputs(enriched_path, summary_path, report_path):
     print()
 
 
-def run_analyzer(rows, city, date_str, output_dir, report_dir, top_n=20):
-    """Programmatic entry point. Returns {enriched_rows, summary, report_md, report_path}."""
+def run_analyzer(rows, city, date_str, top_n=20):
+    """
+    Analyze POI rows.
+    Returns {enriched_rows, summary, report_md}.
+    Does NOT write files — caller decides where to persist.
+    """
     from collections import defaultdict as _dd
     enriched = enrich_rows(rows) if rows else []
     if enriched:
@@ -767,14 +771,10 @@ def run_analyzer(rows, city, date_str, output_dir, report_dir, top_n=20):
                              poi_kind_counts, brand_kind_matrix,
                              brand_location_matrix=brand_location_matrix)
 
-    enriched_path = os.path.join(output_dir, f"{city}_brand_poi_{date_str}_enriched.csv")
-    summary_path = os.path.join(output_dir, f"{city}_brand_poi_{date_str}_summary.json")
-    report_path = os.path.join(report_dir, f"{date_str}_{city}_brand_poi_analysis.md")
-
-    write_enriched_csv(enriched, enriched_path)
-    write_summary_json(summary, summary_path)
+    import tempfile
+    _tmp_report = os.path.join(tempfile.mkdtemp(), "report.md")
     report_md = write_markdown_report(enriched, summary, {
-        "report_path": report_path, "city": city, "date_str": date_str,
+        "report_path": _tmp_report, "city": city, "date_str": date_str,
         "input_path": "",
     }, top_n)
 
@@ -782,9 +782,6 @@ def run_analyzer(rows, city, date_str, output_dir, report_dir, top_n=20):
         "enriched_rows": enriched,
         "summary": summary,
         "report_md": report_md,
-        "report_path": report_path,
-        "enriched_path": enriched_path,
-        "summary_path": summary_path,
     }
 
 
@@ -802,16 +799,16 @@ def main():
     rows = read_csv(paths["input_path"])
     check_required_columns(rows)
 
-    result = run_analyzer(
-        rows=rows, city=paths["city"], date_str=paths["date_str"],
-        output_dir=os.path.dirname(paths["enriched_path"]),
-        report_dir=os.path.dirname(paths["report_path"]),
-        top_n=top_n,
-    )
+    result = run_analyzer(rows=rows, city=paths["city"], date_str=paths["date_str"], top_n=top_n)
 
-    print(f"[输出] Enriched CSV: {result['enriched_path']}")
-    print(f"[输出] Summary JSON: {result['summary_path']}")
-    print(f"[输出] Report: {result['report_path']}")
+    write_enriched_csv(result["enriched_rows"], paths["enriched_path"])
+    write_summary_json(result["summary"], paths["summary_path"])
+    with open(paths["report_path"], "w", encoding="utf-8") as f:
+        f.write(result["report_md"])
+
+    print(f"[输出] Enriched CSV: {paths['enriched_path']}")
+    print(f"[输出] Summary JSON: {paths['summary_path']}")
+    print(f"[输出] Report: {paths['report_path']}")
     print("✅ 品牌 POI 分析完成")
 
 

@@ -161,19 +161,17 @@ def cmd_analyze(args):
         sys.exit(1)
 
     rows = snap.read_csv()
-    result = run_analyzer(
-        rows=rows, city=snap.city, date_str=snap.date_str,
-        output_dir=os.path.join(PROJECT_ROOT, "reports"),
-        report_dir=os.path.join(PROJECT_ROOT, "reports"),
-        top_n=args.top_n,
-    )
+    result = run_analyzer(rows=rows, city=snap.city, date_str=snap.date_str, top_n=args.top_n)
     snap.write_enriched_csv(result["enriched_rows"])
     snap.write_summary_json(result["summary"])
+    report_path = os.path.join(PROJECT_ROOT, "reports", f"{snap.snapshot_id}_brand_poi_analysis.md")
+    with open(report_path, "w", encoding="utf-8") as f:
+        f.write(result["report_md"])
     snap.write_analysis_report(result["report_md"])
 
     print(f"  Enriched CSV: {snap.enriched_csv_path}")
     print(f"  Summary JSON: {snap.summary_json_path}")
-    print(f"  Analysis MD:  {snap.analysis_report_path}")
+    print(f"  Report:       {report_path}")
 
 
 # ── Slice (no API) ──
@@ -382,14 +380,12 @@ def cmd_run(args):
         csv_path=snap.csv_path, json_path=snap.json_path, map_path=map_path,
     )
 
-    result = run_analyzer(
-        rows=rows, city=city, date_str=date_str,
-        output_dir=os.path.join(PROJECT_ROOT, "reports"),
-        report_dir=os.path.join(PROJECT_ROOT, "reports"),
-        top_n=args.top_n,
-    )
+    result = run_analyzer(rows=rows, city=city, date_str=date_str, top_n=args.top_n)
     snap.write_enriched_csv(result["enriched_rows"])
     snap.write_summary_json(result["summary"])
+    report_path = os.path.join(PROJECT_ROOT, "reports", f"{date_str}_{city}_brand_poi_analysis.md")
+    with open(report_path, "w", encoding="utf-8") as f:
+        f.write(result["report_md"])
     snap.write_analysis_report(result["report_md"])
 
     print(f"\n✅ Run complete. Snapshot: {snap.dir}")
