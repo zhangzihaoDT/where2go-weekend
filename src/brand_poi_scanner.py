@@ -14,12 +14,14 @@ from typing import Optional
 
 import yaml
 
+from src.poi_classifier import safe_str as _safe_str, classify_poi_kind, classify_store_location_type
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCAN_MODES = ("text_city_first", "text_city_only", "around_fallback", "grid_around")
 
 # Module-level flags
 _debug_api = False
+_debug_cache = False
 _error_cache = False
 _stats = {
     "api_success_count": 0,
@@ -33,6 +35,11 @@ _stats = {
 def set_debug(val: bool = True):
     global _debug_api
     _debug_api = val
+
+
+def set_debug_cache(val: bool = True):
+    global _debug_cache
+    _debug_cache = val
 
 
 def set_error_cache(val: bool = True):
@@ -107,54 +114,7 @@ def generate_scan_points(config: dict) -> list[dict]:
     return points
 
 
-# ── POI classification ──
-
-
-def _safe_str(val) -> str:
-    if isinstance(val, list):
-        return " ".join(str(v) for v in val)
-    return str(val) if val is not None else ""
-
-
-def classify_poi_kind(
-    name: str, poi_type: str, address: str,
-    source_query: str = "",
-    brand_id: str = "",
-) -> str:
-    text = _safe_str(name) + " " + _safe_str(poi_type) + " " + _safe_str(address)
-    sq = _safe_str(source_query)
-    combined = text + " " + sq
-
-    # 1. energy first
-    if any(k in text for k in ("换电", "充电", "超充", "能源", "power")):
-        return "energy"
-
-    # 2. delivery_center
-    if "交付" in text or "交付" in sq:
-        return "delivery_center"
-
-    # 3. service_center
-    if any(k in combined for k in ("服务中心", "售后", "维修")):
-        return "service_center"
-
-    # 4. user_center
-    if any(k in combined for k in ("用户中心", "授权用户中心", "问界用户中心", "AITO授权用户中心")):
-        return "user_center"
-
-    # 5. experience_store
-    if any(k in combined for k in ("体验中心", "体验店", "蔚来空间", "蔚来中心", "智己汽车", "NIO House", "NIO Space")):
-        return "experience_store"
-
-    # 6. mall_store
-    mall_keywords = ("商场", "广场", "mall", "Mall", "购物中心", "百联", "龙湖",
-                     "万象城", "合生汇", "前滩太古里", "环球港")
-    if any(k in text for k in mall_keywords):
-        return "mall_store"
-
-    if any(k in text for k in ("总部", "办公", "office")):
-        return "office"
-    return "other"
-
+# ── POI classification (imported from poi_classifier) ──
 
 # ── Normalize ──
 
@@ -222,6 +182,9 @@ def normalize_amap_poi(poi: dict, brand: dict, query: str, scan_point: dict,
         "matched_keywords": "|".join(matched),
         "poi_kind": classify_poi_kind(poi_name, poi.get("type", ""), poi.get("address", ""),
                                        source_query=query, brand_id=brand["brand_id"]),
+        "store_location_type": classify_store_location_type(
+            _s(poi.get("name")), _s(poi.get("address")), _s(poi.get("type")),
+        ),
         "raw_distance": poi.get("distance", ""),
         "scan_center_lng": scan_point["lng"],
         "scan_center_lat": scan_point["lat"],
@@ -241,7 +204,6 @@ def parse_amap_response(
     brand: str,
     query: str,
     page: int,
-    cache_path: Optional[str] = None,
     is_cached: bool = False,
 ) -> list[dict]:
     status = data.get("status")
@@ -336,6 +298,36 @@ def _write_cache(cache_path: str, data: list):
         json.dump(data, f, ensure_ascii=False)
 
 
+def _make_text_cache_key(config: dict, brand_id: str, query: str, page: int) -> str:
+    parts = [
+        "api=text",
+        f"brand={brand_id}",
+        f"q={query}",
+        f"ct={config['city']}",
+        f"cl=true",
+        f"off={config['scan_area']['offset']}",
+        f"ext={config['amap']['extensions']}",
+        f"pg={page}",
+    ]
+    return "|".join(parts)
+
+
+def _make_around_cache_key(config: dict, brand_id: str, query: str,
+                           lng: float, lat: float, radius: int) -> str:
+    parts = [
+        "api=around",
+        f"brand={brand_id}",
+        f"q={query}",
+        f"ct={config['city']}",
+        f"cl={'true' if config['amap']['city_limit'] else 'false'}",
+        f"off={config['scan_area']['offset']}",
+        f"ext={config['amap']['extensions']}",
+        f"loc={lng},{lat}",
+        f"rad={radius}",
+    ]
+    return "|".join(parts)
+
+
 # ── Smoke query ──
 
 
@@ -345,6 +337,7 @@ def smoke_query(
     set_debug(debug)
     base_url = config["amap"]["text_api_base"]
     offset = config["scan_area"]["offset"]
+    cache_enabled = config["amap"]["cache_enabled"] and not no_cache
 
     city_variants = [city, city + "市", "310000"]
     seen = set()
@@ -362,29 +355,29 @@ def smoke_query(
                 "extensions": "all",
                 "output": "json",
             }
-            cache_key = f"smoke|{query}|{cv}|page{page}"
-            cpath = _cache_path(config, cache_key) if not no_cache else None
+            ck = f"smoke|q={query}|ct={cv}|off={offset}|ext=all|pg={page}"
+            cpath = _cache_path(config, ck) if cache_enabled else None
 
-            if not no_cache and cpath:
+            if cache_enabled and cpath:
                 cached = _read_cache(cpath)
                 if cached is not None:
-                    print(f"    [cache] loaded {len(cached)} items, skipping API")
+                    print(f"    [Cache Hit] smoke / {query} / {cv} / page {page} ({len(cached)} POIs)")
                     for item in cached:
                         pid = item.get("id", "") + item.get("name", "")
                         if pid not in seen:
                             seen.add(pid)
                             print(f"      {item.get('name','?')} | {item.get('address','')} | {item.get('location','')}")
                     continue
+                print(f"    [Cache Miss] smoke / {query} / {cv} / page {page} -> request API")
 
             result = _amap_request(base_url, params, config)
             if result is None:
                 print(f"    [smoke] request failed (no response)")
                 continue
 
-            show_key = api_key[:6] if debug else None
             pois = parse_amap_response(
                 result, api="text", brand="", query=query, page=page,
-                cache_path=cpath, show_key_prefix=show_key,
+                is_cached=False,
             )
             if pois:
                 for item in pois[:5]:
@@ -393,7 +386,7 @@ def smoke_query(
                         seen.add(pid)
                         loc = item.get("location", "")
                         print(f"      {item.get('name','?')} | {item.get('address','')} | {loc}")
-            if not no_cache and cpath and result.get("status") == "1" and isinstance(result.get("pois"), list):
+            if cache_enabled and cpath and result.get("status") == "1" and isinstance(result.get("pois"), list):
                 _write_cache(cpath, result["pois"])
 
             if result.get("status") != "1":
@@ -416,17 +409,23 @@ def _scan_text(
     max_pages: int, source_label: str,
 ):
     base_url = config["amap"]["text_api_base"]
-    cache_prefix = f"text|{brand['brand_id']}|{query}"
     scan_point = {"lng": 0, "lat": 0, "radius_m": 0}
+    cache_enabled = config["amap"]["cache_enabled"]
 
     for page in range(1, max_pages + 1):
-        cache_key = f"{cache_prefix}|page{page}"
-        cpath = _cache_path(config, cache_key)
-        cached = _read_cache(cpath) if config["amap"]["cache_enabled"] else None
+        ck = _make_text_cache_key(config, brand["brand_id"], query, page)
+        cpath = _cache_path(config, ck) if cache_enabled else None
+
+        if _debug_cache:
+            print(f"    [debug-cache] enabled={cache_enabled} key='{ck}' path={cpath}")
+
+        cached = _read_cache(cpath) if cache_enabled else None
 
         if cached is not None:
             _stats["cache_hit_count"] += 1
-            print(f"    [cache] status=ok pois={len(cached)} ({brand['display_name']} / {query} / page {page})")
+            print(f"    [Cache Hit] text / {query} / page {page} ({len(cached)} POIs)")
+            if not cached:
+                return
             for item in cached:
                 row = normalize_amap_poi(item, brand, query, scan_point, crawl_date)
                 dk = _make_dedup_key(row)
@@ -434,6 +433,11 @@ def _scan_text(
                     seen_keys.add(dk)
                     all_rows.append(row)
             continue
+
+        if cache_enabled and cpath:
+            print(f"    [Cache Miss] text / {query} / page {page} -> request API")
+        else:
+            print(f"    [API] text / {query} / page {page}")
 
         params = {
             "key": api_key,
@@ -451,10 +455,18 @@ def _scan_text(
             print(f"    [AMAP ERROR] query={query} api=text — no response after retries")
             return
 
+        status = result.get("status")
         pois = parse_amap_response(
             result, api="text", brand=brand["display_name"], query=query, page=page,
-            cache_path=cpath,
+            is_cached=False,
         )
+
+        # Cache status=1 responses regardless of emptiness
+        if cache_enabled and status == "1":
+            _write_cache(cpath, pois)
+            if _debug_cache:
+                print(f"    [Cache Write] text / {query} / page {page} status=1 pois={len(pois)}")
+
         if not pois:
             return
 
@@ -467,7 +479,7 @@ def _scan_text(
                 all_rows.append(row)
             page_items.append(item)
 
-        if page_items and config["amap"]["cache_enabled"]:
+        if page_items and cache_enabled:
             _write_cache(cpath, page_items)
 
         time.sleep(config["amap"]["sleep_seconds"])
@@ -482,19 +494,23 @@ def _scan_around(
     scan_points: list[dict], max_pages: int, source_label: str,
 ):
     base_url = config["amap"]["around_api_base"]
+    cache_enabled = config["amap"]["cache_enabled"]
 
     for sp in scan_points:
         sp_radius = sp.get("radius_m", 3500)
-        # Ensure sp has radius_m for downstream normalize_amap_poi
         sp["radius_m"] = sp_radius
-        cache_key = f"around|{brand['brand_id']}|{query}|{sp['lng']}|{sp['lat']}|{sp_radius}"
-        cpath = _cache_path(config, cache_key)
-        cached = _read_cache(cpath) if config["amap"]["cache_enabled"] else None
+        sp_name = sp.get("name", f"{sp['lng']},{sp['lat']}")
+        ck = _make_around_cache_key(config, brand["brand_id"], query, sp["lng"], sp["lat"], sp_radius)
+        cpath = _cache_path(config, ck) if cache_enabled else None
+
+        if _debug_cache:
+            print(f"    [debug-cache] enabled={cache_enabled} key='{ck}' path={cpath}")
+
+        cached = _read_cache(cpath) if cache_enabled else None
 
         if cached is not None:
-            sp["radius_m"] = sp.get("radius_m", 3500)
             _stats["cache_hit_count"] += 1
-            print(f"    [cache] status=ok pois={len(cached)} ({brand['display_name']} / {query} / {sp.get('name','?')})")
+            print(f"    [Cache Hit] around / {query} / {sp_name} ({len(cached)} POIs)")
             for item in cached:
                 row = normalize_amap_poi(item, brand, query, sp, crawl_date)
                 dk = _make_dedup_key(row)
@@ -502,6 +518,8 @@ def _scan_around(
                     seen_keys.add(dk)
                     all_rows.append(row)
             continue
+
+        print(f"    [Cache Miss] around / {query} / {sp_name} -> request API")
 
         params = {
             "key": api_key,
@@ -523,12 +541,17 @@ def _scan_around(
             result = _amap_request(base_url, params, config)
             if result is None:
                 break
-            show_key = api_key[:6] if _debug_api else None
+            status = result.get("status")
             pois = parse_amap_response(
                 result, api="around", brand=brand["display_name"], query=query, page=page,
-                cache_path=cpath, show_key_prefix=show_key,
+                is_cached=False,
             )
             if not pois:
+                # Cache status=1 with empty result before breaking
+                if cache_enabled and status == "1":
+                    _write_cache(cpath, pois)
+                    if _debug_cache:
+                        print(f"    [Cache Write] around / {query} / {sp_name} / page {page} status=1 pois=0")
                 break
             for item in pois:
                 row = normalize_amap_poi(item, brand, query, sp, crawl_date)
@@ -539,8 +562,10 @@ def _scan_around(
                 page_items.append(item)
             time.sleep(config["amap"]["sleep_seconds"])
 
-        if page_items and config["amap"]["cache_enabled"]:
+        if page_items and cache_enabled:
             _write_cache(cpath, page_items)
+            if _debug_cache:
+                print(f"    [Cache Write] around / {query} / {sp_name} status=1 pois={len(page_items)}")
         time.sleep(config["amap"]["sleep_seconds"])
 
 
@@ -640,6 +665,39 @@ def scan_brand_pois(
     return filtered
 
 
+# ── Scan to snapshot ──
+
+
+def scan_to_snapshot(
+    config: dict,
+    crawl_date,
+    api_key: str | None = None,
+    scan_mode: str | None = None,
+) -> list[dict]:
+    from src.brand_poi_snapshot import BrandPoiSnapshot
+    from datetime import date as _date
+    if isinstance(crawl_date, str):
+        crawl_date = _date.fromisoformat(crawl_date)
+    city = config["city"]
+    date_str = crawl_date.isoformat()
+    mode = scan_mode or "text_city_first"
+    rows = scan_brand_pois(config, crawl_date, api_key=api_key, scan_mode=mode)
+    snap = BrandPoiSnapshot.from_date_city(date_str, city)
+    snap.write_csv(rows, fieldnames=CSV_FIELDS)
+    snap.write_json(rows)
+    brands = [b["display_name"] for b in config.get("brands", [])]
+    stats = {
+        "total_poi": len(rows),
+        "brand_counts": {},
+    }
+    for r in rows:
+        bn = r.get("brand_name", "")
+        stats["brand_counts"][bn] = stats["brand_counts"].get(bn, 0) + 1
+    snap.create_manifest(stats, brands)
+    print(f"\n  Snapshot: {snap.dir}")
+    return rows
+
+
 # ── CSV / JSON output ──
 
 
@@ -647,7 +705,7 @@ CSV_FIELDS = [
     "brand_id", "brand_name", "poi_id", "name", "address",
     "province", "city", "district", "adcode",
     "lng_gcj02", "lat_gcj02", "type", "typecode", "tel",
-    "source_query", "matched_keywords", "poi_kind",
+    "source_query", "matched_keywords", "poi_kind", "store_location_type",
     "raw_distance", "scan_center_lng", "scan_center_lat", "scan_radius_m",
     "source", "crawl_date",
 ]

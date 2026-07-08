@@ -157,12 +157,14 @@ function createBrandMarker(poi) {{
 var infoWin = new AMap.InfoWindow({{offset: new AMap.Pixel(0, -30)}});
 function showInfo(e) {{
   var d = e.target.getExtData();
-  var kindLabel = {{ 'experience_store':'体验中心','delivery_center':'交付中心','service_center':'服务中心','mall_store':'商场店','energy':'补能','office':'办公','other':'其他' }};
+  var kindLabel = {{ 'experience_store':'体验中心','delivery_center':'交付中心','service_center':'服务中心','mall_store':'商场店','user_center':'用户中心','energy':'补能','office':'办公','other':'其他' }};
+  var locLabel = {{ 'mall':'商场','road_address_store':'道路地址型门店','auto_park':'汽车园区','industrial_or_service_site':'工业/服务场地','office_or_entity':'办公/企业实体','unknown':'未知' }};
   infoWin.setContent(
     '<div style="font-size:13px;line-height:1.6;max-width:260px;">' +
     '<b style="color:' + brandColors[d.brand_id] + '">' + brandNames[d.brand_id] + '</b><br>' +
     '<b>' + d.name + '</b><br>' +
-    '类型: ' + (kindLabel[d.poi_kind] || d.poi_kind) + '<br>' +
+    '功能类型: ' + (kindLabel[d.poi_kind] || d.poi_kind) + '<br>' +
+    '空间区位: ' + (locLabel[d.store_location_type] || d.store_location_type || '—') + '<br>' +
     '区县: ' + (d.district || '') + '<br>' +
     '地址: ' + (d.address || '') + '<br>' +
     'source_query: ' + (d.source_query || '') + '<br>' +
@@ -178,7 +180,7 @@ poiData.forEach(function(p) {{
   m.setExtData(p);
   if (!filterState[p.brand_id]) filterState[p.brand_id] = true;
   if (!filterState['kind_' + p.poi_kind]) filterState['kind_' + p.poi_kind] = true;
-  allMarkers.push({{ marker: m, brand_id: p.brand_id, poi_kind: p.poi_kind }});
+  allMarkers.push({{ marker: m, brand_id: p.brand_id, poi_kind: p.poi_kind, store_location_type: p.store_location_type || '' }});
 }});
 
 /* ---------- Fit view ---------- */
@@ -200,7 +202,7 @@ if (allMarkers.length > 0) {{
         html_parts.append(
             f'    <label><input type="checkbox" class="brand-filter" data-brand="{bid}" checked>'
             f' <span class="poi-dot" style="background:{b["marker_color"]}"></span>'
-            f' {b["display_name"]} ({count})</label><br>'
+            f' {b["display_name"]} (<span class="fc" data-ft="brand" data-fv="{bid}">{count}</span>)</label><br>'
         )
 
     kind_labels = {
@@ -213,12 +215,26 @@ if (allMarkers.length > 0) {{
     }
     html_parts.append("""  </div>
   <div class="info-box" style="flex:1;min-width:180px;">
-    <h3>POI 类型</h3>""")
+    <h3>功能类型</h3>""")
     for kid, klabel in kind_labels.items():
         count = sum(1 for r in poi_rows if r.get("poi_kind") == kid)
         html_parts.append(
             f'    <label><input type="checkbox" class="kind-filter" data-kind="{kid}" checked>'
-            f' {klabel} ({count})</label><br>'
+            f' {klabel} (<span class="fc" data-ft="kind" data-fv="{kid}">{count}</span>)</label><br>'
+        )
+    html_parts.append("""  </div>
+  <div class="info-box" style="flex:1;min-width:180px;">
+    <h3>空间区位</h3>""")
+    loc_labels = {
+        "mall": "商场", "road_address_store": "道路地址型门店",
+        "auto_park": "汽车园区", "industrial_or_service_site": "工业/服务场地",
+        "office_or_entity": "办公/企业实体", "unknown": "未知",
+    }
+    for lid, ll in loc_labels.items():
+        count = sum(1 for r in poi_rows if r.get("store_location_type") == lid)
+        html_parts.append(
+            f'    <label><input type="checkbox" class="loc-filter" data-loc="{lid}" checked>'
+            f' {ll} (<span class="fc" data-ft="loc" data-fv="{lid}">{count}</span>)</label><br>'
         )
     html_parts.append("""  </div>
 </div>
@@ -235,7 +251,7 @@ if (allMarkers.length > 0) {{
 </div>
 
 <script>
-/* ---------- Filter logic ---------- */
+/* ---------- Filter logic + linked counts ---------- */
 function applyFilters() {
   var brandChecks = {};
   document.querySelectorAll('.brand-filter').forEach(function(cb) {
@@ -245,16 +261,30 @@ function applyFilters() {
   document.querySelectorAll('.kind-filter').forEach(function(cb) {
     kindChecks[cb.dataset.kind] = cb.checked;
   });
+  var locChecks = {};
+  document.querySelectorAll('.loc-filter').forEach(function(cb) {
+    locChecks[cb.dataset.loc] = cb.checked;
+  });
+  var counts = { brand: {}, kind: {}, loc: {} };
   allMarkers.forEach(function(item) {
-    var show = brandChecks[item.brand_id] !== false && kindChecks[item.poi_kind] !== false;
-    if (show) {
+    var visible = brandChecks[item.brand_id] !== false
+              && kindChecks[item.poi_kind] !== false
+              && locChecks[item.store_location_type] !== false;
+    if (visible) {
       item.marker.setMap(map);
+      counts.brand[item.brand_id] = (counts.brand[item.brand_id] || 0) + 1;
+      counts.kind[item.poi_kind] = (counts.kind[item.poi_kind] || 0) + 1;
+      counts.loc[item.store_location_type] = (counts.loc[item.store_location_type] || 0) + 1;
     } else {
       item.marker.setMap(null);
     }
   });
+  document.querySelectorAll('.fc').forEach(function(el) {
+    var ft = el.dataset.ft, fv = el.dataset.fv;
+    el.textContent = (counts[ft] && counts[ft][fv]) || 0;
+  });
 }
-document.querySelectorAll('.brand-filter, .kind-filter').forEach(function(cb) {
+document.querySelectorAll('.brand-filter, .kind-filter, .loc-filter').forEach(function(cb) {
   cb.addEventListener('change', applyFilters);
 });
 </script>
@@ -322,14 +352,37 @@ def generate_brand_poi_report(
             lines.append(f"| {b['display_name']} | {dist} | {cnt} |")
     lines.append("")
 
-    lines.append("## 3. 地图文件\n")
+    # ── Location type breakdown ──
+    loc_order = ["mall", "road_address_store", "auto_park", "industrial_or_service_site", "office_or_entity", "unknown"]
+    loc_labels = {
+        "mall": "商场", "road_address_store": "道路地址型门店", "auto_park": "汽车园区",
+        "industrial_or_service_site": "工业/服务场地", "office_or_entity": "办公/企业实体",
+        "unknown": "未知",
+    }
+    has_loc_data = any(r.get("store_location_type") for brand_rows in by_brand.values() for r in brand_rows)
+    if has_loc_data:
+        lines.append("## 3. 空间区位类型\n")
+        loc_header = "| 品牌 | " + " | ".join(loc_labels[t] for t in loc_order) + " |"
+        loc_sep = "|" + "---|" * (len(loc_order) + 1)
+        lines.append(loc_header)
+        lines.append(loc_sep)
+        for b in config["brands"]:
+            rows = by_brand.get(b["brand_id"], [])
+            counts = {t: sum(1 for r in rows if r.get("store_location_type") == t) for t in loc_order}
+            vals = " | ".join(str(counts[t]) for t in loc_order)
+            lines.append(f"| {b['display_name']} | {vals} |")
+        lines.append("")
+
+    lines.append(f"## {'4' if has_loc_data else '3'}. 地图文件\n")
     lines.append(f"- {map_path}\n")
 
-    lines.append("## 4. 数据文件\n")
+    n = 5 if has_loc_data else 4
+    lines.append(f"## {n}. 数据文件\n")
     lines.append(f"- CSV: {csv_path}")
     lines.append(f"- JSON: {json_path}\n")
 
-    lines.append("## 5. 注意事项\n")
+    n = 6 if has_loc_data else 5
+    lines.append(f"## {n}. 注意事项\n")
     lines.append("- 本结果来自高德 POI API，不等同于品牌官方门店清单。")
     lines.append("- 鸿蒙智行 POI 可能包含 AITO / 问界 / 用户中心等多种命名体系。")
     lines.append("- 蔚来补能类 POI 默认排除，避免换电站数量干扰门店对比。")

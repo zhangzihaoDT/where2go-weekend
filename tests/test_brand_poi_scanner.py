@@ -12,10 +12,16 @@ from src.brand_poi_scanner import (
     normalize_amap_poi,
     classify_poi_kind,
     _make_dedup_key,
+    _make_text_cache_key,
+    _make_around_cache_key,
+    _read_cache,
+    _write_cache,
+    _cache_path,
     estimate_requests,
     SCAN_MODES,
     parse_amap_response,
     set_debug,
+    set_debug_cache,
     clear_cache,
 )
 
@@ -73,6 +79,31 @@ class TestBrandPoiScanner(unittest.TestCase):
     def test_classify_mall_store(self):
         self.assertEqual(classify_poi_kind("商场店", "汽车", "环球港"), "mall_store")
         self.assertEqual(classify_poi_kind("万象城店", "汽车", "万象城"), "mall_store")
+
+    def test_classify_mall_store_car_brand_and_mall_clue(self):
+        self.assertEqual(classify_poi_kind("鸿蒙智行汽车·华为(世博源店)", "汽车", "世博大道"), "mall_store")
+        self.assertEqual(classify_poi_kind("鸿蒙智行汽车·华为(晶耀前滩店)", "汽车", "耀体路"), "mall_store")
+        self.assertEqual(classify_poi_kind("鸿蒙智行(日月光中心宝山店)", "汽车", "沪太路"), "mall_store")
+
+    def test_classify_service_center_enhanced(self):
+        self.assertEqual(classify_poi_kind("AITO官方精品施工中心", "汽车", "华江路"), "service_center")
+        self.assertEqual(classify_poi_kind("精品施工中心", "汽车", "路"), "service_center")
+        self.assertEqual(classify_poi_kind("施工中心", "汽车", "华江路"), "service_center")
+
+    def test_classify_user_center_enhanced(self):
+        self.assertEqual(classify_poi_kind("上海冠松aito4S店", "汽车", "世纪公园"), "user_center")
+        self.assertEqual(classify_poi_kind("华为AITO汽车中心", "汽车", "长宁"), "user_center")
+        self.assertEqual(classify_poi_kind("某品牌4S 店", "汽车", "路"), "user_center")
+
+    def test_classify_service_center_priority_over_mall(self):
+        self.assertEqual(classify_poi_kind("AITO官方精品施工中心(华江路问界)", "汽车", "华江路"), "service_center")
+
+    def test_classify_user_center_priority_over_mall_store(self):
+        self.assertEqual(classify_poi_kind("上海冠松aito4S店(世纪公园店)", "汽车", "世纪公园"), "user_center")
+
+    def test_classify_mall_store_not_for_non_car_brand(self):
+        """Without a car brand clue, mall clue alone still hits fallback mall_store."""
+        self.assertEqual(classify_poi_kind("普通店", "其他", "世博源"), "mall_store")
 
     def test_classify_office(self):
         self.assertEqual(classify_poi_kind("蔚来总部", "办公", "嘉定"), "office")
@@ -248,6 +279,74 @@ class TestBrandPoiScanner(unittest.TestCase):
     def test_clear_cache_does_not_crash(self):
         clear_cache()
 
+    def test_set_debug_cache_flag(self):
+        set_debug_cache(True)
+        set_debug_cache(False)
+
+    def test_text_cache_key_is_stable(self):
+        config = _load_config()
+        k1 = _make_text_cache_key(config, "nio", "蔚来中心", 1)
+        k2 = _make_text_cache_key(config, "nio", "蔚来中心", 1)
+        self.assertEqual(k1, k2)
+
+    def test_text_cache_key_differs_by_query(self):
+        config = _load_config()
+        k1 = _make_text_cache_key(config, "nio", "蔚来中心", 1)
+        k2 = _make_text_cache_key(config, "nio", "蔚来空间", 1)
+        self.assertNotEqual(k1, k2)
+
+    def test_text_cache_key_differs_by_page(self):
+        config = _load_config()
+        k1 = _make_text_cache_key(config, "nio", "蔚来中心", 1)
+        k2 = _make_text_cache_key(config, "nio", "蔚来中心", 2)
+        self.assertNotEqual(k1, k2)
+
+    def test_text_cache_key_no_api_key_or_sig(self):
+        config = _load_config()
+        k = _make_text_cache_key(config, "im_motors", "智己汽车", 1)
+        self.assertNotIn("key=", k)
+        self.assertNotIn("sig=", k)
+        self.assertIn("api=text", k)
+        self.assertIn("brand=im_motors", k)
+
+    def test_around_cache_key_differs_by_location(self):
+        config = _load_config()
+        k1 = _make_around_cache_key(config, "nio", "蔚来", 121.47, 31.23, 3000)
+        k2 = _make_around_cache_key(config, "nio", "蔚来", 121.50, 31.24, 3000)
+        self.assertNotEqual(k1, k2)
+
+    def test_cache_write_then_read(self):
+        import tempfile, os, json
+        data = [{"id": "P1", "name": "test", "location": "121.47,31.23"}]
+        tmpdir = tempfile.mkdtemp()
+        path = os.path.join(tmpdir, "cache_test.json")
+        try:
+            _write_cache(path, data)
+            self.assertTrue(os.path.exists(path))
+            loaded = _read_cache(path)
+            self.assertEqual(len(loaded), 1)
+            self.assertEqual(loaded[0]["name"], "test")
+        finally:
+            import shutil
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_cache_read_nonexistent_returns_none(self):
+        self.assertIsNone(_read_cache("/nonexistent/path.json"))
+
+    def test_clear_cache_then_first_miss_second_hit(self):
+        """Simulate cache round-trip: clear → write → read."""
+        import tempfile, os, json
+        tmpdir = tempfile.mkdtemp()
+        path = os.path.join(tmpdir, "roundtrip.json")
+        try:
+            self.assertIsNone(_read_cache(path))
+            _write_cache(path, [{"id": "T1"}])
+            loaded = _read_cache(path)
+            self.assertIsNotNone(loaded)
+        finally:
+            import shutil
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
     def test_10021_does_not_cache(self):
         """Error responses should not be cached."""
         from src.brand_poi_scanner import _amap_request
@@ -282,6 +381,69 @@ class TestBrandPoiScanner(unittest.TestCase):
         stats = get_stats()
         self.assertGreater(stats["cache_miss_count"], 0)
         self.assertEqual(stats["cache_hit_count"], 0)
+
+    def test_empty_poi_list_is_written_to_cache(self):
+        """status=1 with pois=[] should still be written to cache."""
+        import tempfile, os
+        tmpdir = tempfile.mkdtemp()
+        path = os.path.join(tmpdir, "empty.json")
+        try:
+            _write_cache(path, [])
+            self.assertTrue(os.path.exists(path))
+            import json
+            with open(path) as f:
+                self.assertEqual(json.load(f), [])
+        finally:
+            import shutil
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_empty_cache_is_readable(self):
+        import tempfile, os
+        tmpdir = tempfile.mkdtemp()
+        path = os.path.join(tmpdir, "empty_read.json")
+        try:
+            _write_cache(path, [])
+            loaded = _read_cache(path)
+            self.assertIsNotNone(loaded)
+            self.assertEqual(loaded, [])
+        finally:
+            import shutil
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_same_empty_query_hits_cache_twice(self):
+        """Simulate two identical requests hitting the same empty cache."""
+        import tempfile, os
+        tmpdir = tempfile.mkdtemp()
+        path = os.path.join(tmpdir, "empty_twice.json")
+        try:
+            _write_cache(path, [])
+            r1 = _read_cache(path)
+            r2 = _read_cache(path)
+            self.assertIsNotNone(r1)
+            self.assertIsNotNone(r2)
+        finally:
+            import shutil
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_status_0_10021_not_cached_by_parse(self):
+        """status=0 with 10021 increments error count but should not be written."""
+        from src.brand_poi_scanner import parse_amap_response, reset_stats, get_stats
+        reset_stats()
+        data = {"status": "0", "info": "CUQPS_HAS_EXCEEDED_THE_LIMIT", "infocode": "10021"}
+        result = parse_amap_response(data, api="text", brand="test", query="q", page=1)
+        self.assertEqual(result, [])
+        stats = get_stats()
+        self.assertGreater(stats["api_error_count"], 0)
+
+    def test_status_0_invalid_key_not_cached_by_parse(self):
+        """status=0 with INVALID_USER_SIGNATURE should also not be cached."""
+        from src.brand_poi_scanner import parse_amap_response, reset_stats, get_stats
+        reset_stats()
+        data = {"status": "0", "info": "INVALID_USER_SIGNATURE", "infocode": "10003"}
+        result = parse_amap_response(data, api="text", brand="test", query="q", page=1)
+        self.assertEqual(result, [])
+        stats = get_stats()
+        self.assertGreater(stats["api_error_count"], 0)
 
 
 if __name__ == "__main__":
