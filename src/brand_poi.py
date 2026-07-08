@@ -174,7 +174,6 @@ def cmd_analyze(args):
     print(f"  Enriched CSV: {snap.enriched_csv_path}")
     print(f"  Summary JSON: {snap.summary_json_path}")
     print(f"  Analysis MD:  {snap.analysis_report_path}")
-    print(f"  Report:       {result.get('report_path', '')}")
 
 
 # ── Slice (no API) ──
