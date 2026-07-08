@@ -1,0 +1,56 @@
+categories:
+  - category_id: coffee
+    display_name: 咖啡
+    query_keywords:
+      - 咖啡
+    semantic_keywords:
+      - 咖啡
+      - 咖啡馆
+      - 精品咖啡
+    weekend_weight: 1.0
+
+  - category_id: food_light
+    display_name: 轻食
+    query_keywords:
+      - 烘焙
+      - 轻食
+    semantic_keywords:
+      - 轻食
+      - brunch
+      - 面包
+      - 烘焙
+    weekend_weight: 0.8
+
+  - category_id: art_space
+    display_name: 艺术空间
+    query_keywords:
+      - 画廊
+      - 展览
+    semantic_keywords:
+      - 展览
+      - 画廊
+      - 艺术空间
+    weekend_weight: 1.2
+
+  - category_id: lifestyle
+    display_name: 生活方式
+    query_keywords:
+      - 书店
+      - 工作室
+    semantic_keywords:
+      - 书店
+      - 买手店
+      - 工作室
+      - 复合空间
+    weekend_weight: 1.1
+
+  - category_id: compound_space
+    display_name: 复合空间
+    query_keywords:
+      - 创意园
+      - 复合空间
+    semantic_keywords:
+      - 创意园
+      - 复合空间
+      - 联合办公
+    weekend_weight: 1.0

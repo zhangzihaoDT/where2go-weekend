@@ -1,0 +1,14 @@
+.env
+data/poi_snapshots/
+data/cache/
+data/skipped_queries.csv
+data/collection_summary.csv
+data/poi_change_events.csv
+data/district_change_scores.csv
+data/district_scores.csv
+data/geocode_results.csv
+reports/*.md
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store

@@ -1,0 +1,47 @@
+districts:
+  - district_id: zhihui_fang
+    name: 智慧坊
+    city: 上海
+    address: 上海市杨浦区平凉路2241号智慧坊创意园
+    center_lng: 121.548971
+    center_lat: 31.273193
+    coordinate_source: amap_geocode
+    coordinate_verified: true
+    previous_center_lng: 121.438
+    previous_center_lat: 31.194
+    radius_m: 500
+    tags:
+      - 创意园区
+      - 生活方式
+      - 小型园区
+    why_track: 智慧坊是上海小型生活方式园区的代表，密度高、业态混杂，适合观察城市更新中的微尺度商业生态。
+    default_accessibility_score: 75
+    default_crowding_risk: 40
+
+  - district_id: yangpu_binjiang
+    name: 杨浦滨江
+    city: 上海
+    center_lng: 121.514
+    center_lat: 31.270
+    radius_m: 800
+    tags:
+      - 滨江岸线
+      - 工业遗存
+      - 展览空间
+    why_track: 杨浦滨江是上海工业遗存改造的标杆区域，新开的展览与公共空间持续吸引内容创作者。
+    default_accessibility_score: 60
+    default_crowding_risk: 50
+
+  - district_id: dingxi_road
+    name: 定西路
+    city: 上海
+    center_lng: 121.426
+    center_lat: 31.225
+    radius_m: 600
+    tags:
+      - 美食街
+      - 老城生活
+      - 社区商业
+    why_track: 定西路是长宁区典型的社区商业街，餐饮密集、生活气息浓厚，适合观察上海本地日常消费。
+    default_accessibility_score: 80
+    default_crowding_risk: 65
