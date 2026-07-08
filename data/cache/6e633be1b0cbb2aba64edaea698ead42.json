@@ -1,0 +1,19 @@
+[
+  {
+    "snapshot_date": "2026-07-08",
+    "source": "amap",
+    "district_id": "yangpu_binjiang",
+    "district_name": "杨浦滨江",
+    "category_id": "food_light",
+    "keyword": "轻食",
+    "poi_id": "B0JABLS02R",
+    "name": "天和大包(鞍山路店)",
+    "address": "上海城区鞍山路71号底层",
+    "lng": 121.512278,
+    "lat": 31.275536,
+    "poi_type": "餐饮服务;快餐厅;快餐厅",
+    "raw_type": "050300",
+    "business_area": "",
+    "confidence": 0.8
+  }
+]

@@ -1,0 +1,19 @@
+[
+  {
+    "snapshot_date": "2026-07-08",
+    "source": "amap",
+    "district_id": "zhihui_fang",
+    "district_name": "智慧坊",
+    "category_id": "food_light",
+    "keyword": "烘焙",
+    "poi_id": "B0KDU5AQEO",
+    "name": "星期五手作FridayHandmade",
+    "address": "河间路1192号39号楼201(罗森超市后门旁楼梯上二楼)",
+    "lng": 121.547324,
+    "lat": 31.274246,
+    "poi_type": "体育休闲服务;休闲场所;休闲场所",
+    "raw_type": "080500",
+    "business_area": "",
+    "confidence": 0.8
+  }
+]

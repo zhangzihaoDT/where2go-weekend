@@ -1,0 +1,6 @@
+.env
+data/poi_snapshots/
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store

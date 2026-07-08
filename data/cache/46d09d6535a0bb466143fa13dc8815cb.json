@@ -1,0 +1,36 @@
+[
+  {
+    "snapshot_date": "2026-07-08",
+    "source": "amap",
+    "district_id": "yangpu_binjiang",
+    "district_name": "杨浦滨江",
+    "category_id": "lifestyle",
+    "keyword": "书店",
+    "poi_id": "B0FFFGRIO1",
+    "name": "上海书城(鞍山路店)",
+    "address": "鞍山路20号(近控江路)(鞍山新村地铁站1号口步行410米)",
+    "lng": 121.513482,
+    "lat": 31.274429,
+    "poi_type": "购物服务;专卖店;书店",
+    "raw_type": "061205",
+    "business_area": "",
+    "confidence": 0.8
+  },
+  {
+    "snapshot_date": "2026-07-08",
+    "source": "amap",
+    "district_id": "yangpu_binjiang",
+    "district_name": "杨浦滨江",
+    "category_id": "lifestyle",
+    "keyword": "书店",
+    "poi_id": "B00155ERVP",
+    "name": "普育教辅书店(鞍山四村第一小区店)",
+    "address": "鞍山四村第一小区东南1门旁",
+    "lng": 121.511504,
+    "lat": 31.276408,
+    "poi_type": "购物服务;专卖店;书店",
+    "raw_type": "061205",
+    "business_area": "",
+    "confidence": 0.8
+  }
+]

@@ -1,0 +1,3 @@
+score_date,target_weekend_date,district_id,district_name,new_poi_count,disappeared_poi_count,category_growth_count,category_decline_count,freshness_score,category_change_score,low_crowding_potential,route_potential_score,change_score,score_explanation
+2026-07-08,2026-07-11,yangpu_binjiang,杨浦滨江,0,0,0,0,50,0,65,80,46,杨浦滨江 为首期基准快照，暂无历史数据。当前覆盖 4 个品类。
+2026-07-08,2026-07-11,zhihui_fang,智慧坊,0,0,0,0,50,0,75,40,40,智慧坊 为首期基准快照，暂无历史数据。当前覆盖 2 个品类。

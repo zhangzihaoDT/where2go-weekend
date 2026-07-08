@@ -1,0 +1,36 @@
+[
+  {
+    "snapshot_date": "2026-07-08",
+    "source": "amap",
+    "district_id": "yangpu_binjiang",
+    "district_name": "杨浦滨江",
+    "category_id": "art_space",
+    "keyword": "展览",
+    "poi_id": "B0HD113ML6",
+    "name": "上海能级展览展示服务有限公司",
+    "address": "飞虹路568弄16号",
+    "lng": 121.50768,
+    "lat": 31.266118,
+    "poi_type": "公司企业;公司;公司",
+    "raw_type": "170200",
+    "business_area": "",
+    "confidence": 0.8
+  },
+  {
+    "snapshot_date": "2026-07-08",
+    "source": "amap",
+    "district_id": "yangpu_binjiang",
+    "district_name": "杨浦滨江",
+    "category_id": "art_space",
+    "keyword": "展览",
+    "poi_id": "B0FFLC03J3",
+    "name": "笔中情(上海)文化创意发展中心",
+    "address": "周家嘴路与荆州路交叉口东100米",
+    "lng": 121.511867,
+    "lat": 31.263513,
+    "poi_type": "科教文化服务;科教文化场所;科教文化场所",
+    "raw_type": "140000",
+    "business_area": "",
+    "confidence": 0.8
+  }
+]

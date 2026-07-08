@@ -1,0 +1,3 @@
+district_id,district_name,poi_count,category_diversity,density_score,freshness_score,low_cost_score,accessibility_score,crowding_risk,content_productivity_score,weekend_score,recommendation_reason
+zhihui_fang,智慧坊,13,2,26,50,100,75,40,92,60,低成本友好、交通便利、内容生产素材多、人少清静
+yangpu_binjiang,杨浦滨江,50,4,100,100,96,60,50,62,78,业态密集、品类丰富、低成本友好

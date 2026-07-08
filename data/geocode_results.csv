@@ -1,0 +1,2 @@
+district_id,name,address,original_lng,original_lat,suggested_lng,suggested_lat,geocode_status,level,confidence
+zhihui_fang,智慧坊,上海市杨浦区平凉路2241号智慧坊创意园,121.548971,31.273193,121.548971,31.273193,success,住宅区,

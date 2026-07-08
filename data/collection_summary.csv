@@ -1,0 +1,5 @@
+run_date,snapshot_date,weekend_date,district_id,district_name,planned_queries,api_requests_used,cache_hits,skipped_queries,fallback_used,poi_count,notes
+2026-07-08,2026-07-08,2026-07-11,zhihui_fang,智慧坊,14,4,10,4,no,13,
+2026-07-08,2026-07-08,2026-07-11,yangpu_binjiang,杨浦滨江,14,4,10,4,no,50,
+2026-07-08,2026-07-08,2026-07-11,dingxi_road,定西路,6,0,6,3,yes (no real data),0,
+2026-07-08,2026-07-08,2026-07-11,__total__,合计,34,8,26,11,no,11,

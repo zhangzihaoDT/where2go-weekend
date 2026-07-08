@@ -1,0 +1,24 @@
+daily_max_requests: 30
+per_district_max_requests: 10
+max_pages_default: 1
+max_pages_focus_district: 2
+enable_force_refresh: false
+
+district_tiers:
+  zhihui_fang: A
+  yangpu_binjiang: A
+  dingxi_road: B
+
+tier_rules:
+  A:
+    refresh_frequency: weekly
+    max_keywords: 7
+    max_pages: 2
+  B:
+    refresh_frequency: biweekly
+    max_keywords: 6
+    max_pages: 1
+  C:
+    refresh_frequency: monthly
+    max_keywords: 4
+    max_pages: 1

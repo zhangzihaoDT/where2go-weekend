@@ -1,0 +1,64 @@
+snapshot_date,previous_snapshot_date,district_id,district_name,category_id,event_type,poi_id,name,address,signal_strength,why_interesting
+2026-07-08,,zhihui_fang,智慧坊,coffee,no_previous_snapshot,B0JAOSW104,星巴克沿街取餐点(上海智慧坊店),平凉路2257号,0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,zhihui_fang,智慧坊,coffee,no_previous_snapshot,B0IU173GJ7,星巴克(上海智慧坊店),平凉路2241号23幢一层102室、58幢,0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,zhihui_fang,智慧坊,coffee,no_previous_snapshot,B0K0ZATJ73,黑皮咖啡(黑皮模玩),平凉路2241号智慧坊4号楼101室(黑皮咖啡&黑皮模玩),0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,zhihui_fang,智慧坊,coffee,no_previous_snapshot,B0MBDAFSPL,瑞幸咖啡(智慧坊北门店),平凉路2241号智慧坊底商,0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,zhihui_fang,智慧坊,coffee,no_previous_snapshot,B0KRR9384X,73Coffee(智慧坊店),平凉路2241号智慧坊12号楼105,0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,zhihui_fang,智慧坊,coffee,no_previous_snapshot,B0LAV77FVG,Manner Coffee,贵阳路398号文通国际广场F1层,0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,zhihui_fang,智慧坊,coffee,no_previous_snapshot,B0L1JS8LYR,luckin coffee 瑞幸咖啡(河间路店),上海电力大学杨浦校区东南门东北100米,0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,zhihui_fang,智慧坊,coffee,no_previous_snapshot,B0J335QF7O,Tims天好咖啡(阳普邻里店),腾越路465弄1-10号腾越路465弄小区,0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,zhihui_fang,智慧坊,coffee,no_previous_snapshot,B0FFK1VSDL,瑞幸咖啡(文通国际广场店),贵阳路398号文通国际广场北一层大堂,0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,zhihui_fang,智慧坊,coffee,no_previous_snapshot,B0G2AD5GS7,星巴克(文通国际广场店),平凉路2323号1层A室,0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,zhihui_fang,智慧坊,coffee,no_previous_snapshot,B0L1K1UZAU,SIMPUR COFFEE(杨浦店),平凉路2440号芯工创意园5幢102室,0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,zhihui_fang,智慧坊,coffee,no_previous_snapshot,B0IA3XGX64,卡戎咖啡(杨浦店),上海电力大学杨浦北校区西北门旁,0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,zhihui_fang,智慧坊,food_light,no_previous_snapshot,B0KDU5AQEO,星期五手作FridayHandmade,河间路1192号39号楼201(罗森超市后门旁楼梯上二楼),0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,yangpu_binjiang,杨浦滨江,coffee,no_previous_snapshot,B0LUYAPN21,Manner Coffee(中海海上和集店),飞虹路与许昌路交叉口西20米,0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,yangpu_binjiang,杨浦滨江,coffee,no_previous_snapshot,B0LUJS9DWG,库迪咖啡(中海海上和集店),江浦路街道飞虹路788号102室,0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,yangpu_binjiang,杨浦滨江,coffee,no_previous_snapshot,B0K30RRLKR,luckin coffee 瑞幸咖啡(许昌路店),许昌路1362号2室,0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,yangpu_binjiang,杨浦滨江,coffee,no_previous_snapshot,B0FFJOA1J2,星巴克(君欣时代广场店),控江路1777号君欣时代广场一楼,0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,yangpu_binjiang,杨浦滨江,coffee,no_previous_snapshot,B0FFKNVIH9,星巴克新华医院店,江浦路1379号新华医院25号科技楼第1层101号单元,0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,yangpu_binjiang,杨浦滨江,coffee,no_previous_snapshot,B0K1PMF05C,Knock knock Cafe&Bar,控江路2027号(鞍山新村地铁站3号口步行70米),0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,yangpu_binjiang,杨浦滨江,coffee,no_previous_snapshot,B0M6BCHOLV,FreedomCOFFEE(本溪路店),本溪路290号雀赢门进来,0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,yangpu_binjiang,杨浦滨江,coffee,no_previous_snapshot,B0K3H920PS,肯悦咖啡鞍山店,控江路2056号一层,0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,yangpu_binjiang,杨浦滨江,coffee,no_previous_snapshot,B0FFI89UW6,星巴克(旭辉Mall店),控江路2028号旭辉商业广场1号楼1F-02,0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,yangpu_binjiang,杨浦滨江,coffee,no_previous_snapshot,B0MBYC5LQN,M Stand(上海控江旭辉店),四平路街道控江路2066号旭辉mall商场一楼,0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,yangpu_binjiang,杨浦滨江,coffee,no_previous_snapshot,B0MGS5MJM4,luckin coffee 瑞幸咖啡(新华医院店),控江路1659号,0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,yangpu_binjiang,杨浦滨江,coffee,no_previous_snapshot,B0MBSSE2GY,瑞幸咖啡(新华医院店),控江路1665号新华医院底商,0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,yangpu_binjiang,杨浦滨江,coffee,no_previous_snapshot,B0H01RS3I4,瑞幸咖啡(控江旭辉MALL店),控江路2068号旭辉mall商场1号楼B1层B1-03,0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,yangpu_binjiang,杨浦滨江,coffee,no_previous_snapshot,B0K3YA8ZO1,城市深潜书店·自习·咖啡·会议(紫荆广场店),控江路1628号L4-26、27-33单元,0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,yangpu_binjiang,杨浦滨江,coffee,no_previous_snapshot,B0KBGD2MWM,luckin coffee 瑞幸咖啡(鞍山片区店),中通雅苑西南门旁(鞍山新村地铁站1号口步行470米),0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,yangpu_binjiang,杨浦滨江,coffee,no_previous_snapshot,B0LDGA5L5R,纬度拾光屋,庄河路148号1层,0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,yangpu_binjiang,杨浦滨江,coffee,no_previous_snapshot,B0LGYC7XYO,瑞幸咖啡(紫荆广场店),控江路1628号紫荆广场负一层B1F-11+25室,0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,yangpu_binjiang,杨浦滨江,coffee,no_previous_snapshot,B0FFGY741E,樱乔咖啡(和平花苑店),控江路街道控江路2210号二楼,0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,yangpu_binjiang,杨浦滨江,coffee,no_previous_snapshot,B0JATCTVUT,1:30PM咖啡馆,江浦路1500号智慧树2号楼106室(江浦路地铁站5号口旁),0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,yangpu_binjiang,杨浦滨江,coffee,no_previous_snapshot,B0FFGB2FCT,星巴克(紫荆广场店),控江路1628号紫荆广场L113单元,0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,yangpu_binjiang,杨浦滨江,food_light,no_previous_snapshot,B0JKXLQ08A,国营西区老大房(鞍山路店),四平路街道鞍山路36号(鞍山新村地铁站2号出口步行360米),0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,yangpu_binjiang,杨浦滨江,food_light,no_previous_snapshot,B0FFLFDH3D,红房子西菜馆·特色西点(环球超市店),6556号山人食品有限公司三楼,0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,yangpu_binjiang,杨浦滨江,food_light,no_previous_snapshot,B0GUAXGB7C,悦尚臻点(石油大楼店),控江路1720号(环球超市旁边),0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,yangpu_binjiang,杨浦滨江,food_light,no_previous_snapshot,B0FFIBJKBF,老大昌(石油大楼店),控江路1736号(鞍山新村地铁站1号口步行430米),0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,yangpu_binjiang,杨浦滨江,food_light,no_previous_snapshot,B0FFKFTNZZ,德焙面包(杨浦旭辉广场店),控江路2068号旭辉商业广场1号楼1F-13B商铺,0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,yangpu_binjiang,杨浦滨江,food_light,no_previous_snapshot,B00156O2ZW,凯司令西点房(本溪路店),本溪路270号(鞍山新村地铁站1号口步行430米),0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,yangpu_binjiang,杨浦滨江,food_light,no_previous_snapshot,B0LK3U0FNL,詹记桃酥(旭辉Mall店),四平路街道控江路2066号旭辉Mall 1F层1F-21b商铺,0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,yangpu_binjiang,杨浦滨江,food_light,no_previous_snapshot,B0FFJ324VY,苏小柳点心(旭辉广场分院),控江路2028弄1F-21B(旭辉广场1楼),0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,yangpu_binjiang,杨浦滨江,food_light,no_previous_snapshot,B0FFIAXJMX,杏花楼(鞍山路店),鞍山路42号(鞍山新村地铁站1号口步行450米),0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,yangpu_binjiang,杨浦滨江,food_light,no_previous_snapshot,B0FFGYUNRN,红房子西菜馆特色西点(紫荆广场店),控江路1628号紫荆广场B1层,0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,yangpu_binjiang,杨浦滨江,food_light,no_previous_snapshot,B0G0ZCXFHI,老香港点心局(鞍山路店),鞍山路72号,0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,yangpu_binjiang,杨浦滨江,food_light,no_previous_snapshot,B0FFGDQUWD,多乐之日(紫荆广场店),控江路1628号紫荆广场(江浦路)L1层L1-11B/12,0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,yangpu_binjiang,杨浦滨江,food_light,no_previous_snapshot,B0M6OHLENY,DQ·蛋糕·冰淇淋(上海紫荆广场店),控江路1628号紫荆广场B1,0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,yangpu_binjiang,杨浦滨江,food_light,no_previous_snapshot,B0FFKT8ZDD,春杏古早味(紫荆广场店),控江路1688号紫荆广场B1(江浦路地铁站3号口旁),0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,yangpu_binjiang,杨浦滨江,food_light,no_previous_snapshot,B00155KECC,苹果花园(鞍山路店),鞍山路83号,0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,yangpu_binjiang,杨浦滨江,food_light,no_previous_snapshot,B0FFJ8OONF,Wagas沃歌斯(上海江浦路店),江浦路1515号A103室,0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,yangpu_binjiang,杨浦滨江,food_light,no_previous_snapshot,B0FFKWYZUK,Regal Studio,大连路990号607室,0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,yangpu_binjiang,杨浦滨江,food_light,no_previous_snapshot,B0FFGANZRZ,虹口糕团(控江路店)(装修中),控江路1657-1号(江浦路地铁站2号口步行80米),0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,yangpu_binjiang,杨浦滨江,food_light,no_previous_snapshot,B0JABLS02R,天和大包(鞍山路店),上海城区鞍山路71号底层,0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,yangpu_binjiang,杨浦滨江,art_space,no_previous_snapshot,B0HD113ML6,上海能级展览展示服务有限公司,飞虹路568弄16号,0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,yangpu_binjiang,杨浦滨江,art_space,no_previous_snapshot,B0FFLC03J3,笔中情(上海)文化创意发展中心,周家嘴路与荆州路交叉口东100米,0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,yangpu_binjiang,杨浦滨江,lifestyle,no_previous_snapshot,B0FFFGRIO1,上海书城(鞍山路店),鞍山路20号(近控江路)(鞍山新村地铁站1号口步行410米),0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,yangpu_binjiang,杨浦滨江,lifestyle,no_previous_snapshot,B00155ERVP,普育教辅书店(鞍山四村第一小区店),鞍山四村第一小区东南1门旁,0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,yangpu_binjiang,杨浦滨江,lifestyle,no_previous_snapshot,B0FFKQS8OF,中田健身工作室(周家嘴路店),飞虹路与许昌路交叉口西南100米,0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,yangpu_binjiang,杨浦滨江,lifestyle,no_previous_snapshot,B0FFK69RI2,中田健身工作室(上海信息技术大厦店),控江路1555号上海信息技术大厦F24层,0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,yangpu_binjiang,杨浦滨江,lifestyle,no_previous_snapshot,B0HKASI735,超凡健身工作室,江浦路街道控江路1555号上海信息技术大厦606室,0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,yangpu_binjiang,杨浦滨江,lifestyle,no_previous_snapshot,B0G3YHUQ9F,大海小燕建筑设计工作室,江浦路1500号2号楼008(江浦路地铁站5号口步行80米),0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,yangpu_binjiang,杨浦滨江,lifestyle,no_previous_snapshot,B0KGP16OLK,炼馆健身工作室,飞虹路与大连路交叉口东120米,0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,yangpu_binjiang,杨浦滨江,lifestyle,no_previous_snapshot,B0K2T7QE9L,琪航健身工作室(海上海店),江浦街道大连路970号弘基休闲广场9号楼408室,0,这是第一期基准快照，后续将基于此识别变化。
+2026-07-08,,yangpu_binjiang,杨浦滨江,lifestyle,no_previous_snapshot,B0MGYR7C8G,练亿天健身工作室,大连路与三河路交叉口东南120米,0,这是第一期基准快照，后续将基于此识别变化。
