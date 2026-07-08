@@ -12,6 +12,9 @@ def generate_report(
     weekend_date: date,
     has_previous_snapshot: bool,
     collection_state: Optional[object] = None,
+    map_path: Optional[str] = None,
+    coord_mode: Optional[str] = None,
+    map_provider: Optional[str] = None,
 ):
     scores_sorted = sorted(change_scores, key=lambda x: x["change_score"], reverse=True)
     top = scores_sorted[0] if scores_sorted else None
@@ -116,6 +119,35 @@ def generate_report(
     _add_topic(lines, change_scores, change_events)
     lines.append("")
 
+    if map_path:
+        lines.append("---")
+        lines.append("")
+        lines.append("## 地图预览")
+        lines.append("")
+        lines.append(f"本次 POI 点位和街区采样范围已生成静态地图：")
+        lines.append("")
+        lines.append(f"> `reports/maps/{os.path.basename(map_path)}`")
+        lines.append("")
+        if map_provider == "amap_js":
+            lines.append(
+                "地图 provider：**amap_js**。"
+                "本地图使用高德 JS API 底图，POI 坐标来自高德 Web Service，"
+                "坐标体系为 GCJ-02，不执行坐标转换。"
+                "该地图用于 POI 点位 QA，不作为精确导航工具。"
+            )
+        elif coord_mode == "raw_gcj02":
+            lines.append(
+                "地图 provider：**leaflet_osm**。"
+                "坐标模式为 **raw_gcj02**，GCJ-02 坐标直接叠加到 OSM 底图，可能存在偏移。"
+            )
+        else:
+            lines.append(
+                "地图使用 Leaflet + OpenStreetMap 生成。高德 POI 原始坐标为 GCJ-02，"
+                "本地图默认使用近似转换后的 WGS84 坐标进行可视化，仅用于数据 QA 和空间预览，"
+                "不用于导航或精确测绘。"
+            )
+        lines.append("")
+
     lines.append("---")
     lines.append("")
     lines.append("## 数据采集说明")
@@ -133,8 +165,29 @@ def generate_report(
         lines.append(f"- **缓存命中数**：{collection_state.cache_hits}")
         lines.append(f"- **跳过查询数**：{collection_state.skipped_queries}")
         lines.append(f"- **是否使用 sample fallback**：{'是' if collection_state.fallback_used else '否'}")
-        if collection_state.api_key_present and not collection_state.fallback_used:
-            lines.append("- **坐标校准**：建议运行 `python3 src/geocode_districts.py` 校准街区坐标")
+        lines.append("")
+        if map_path:
+            lines.append(f"- **地图已生成**：是")
+            lines.append(f"- **地图路径**：`reports/maps/{os.path.basename(map_path)}`")
+            lines.append(f"- **地图 provider**：{map_provider or 'amap_js'}")
+            if map_provider == "amap_js":
+                lines.append(f"- **地图坐标模式**：none (直接使用 GCJ-02)")
+                lines.append(f"- **map_crs**：GCJ-02")
+                lines.append(f"- **coord_transform_method**：none")
+                lines.append(
+                    "- **坐标说明**：本地图使用高德 JS API 底图，POI 坐标来自高德 Web Service，"
+                    "坐标体系为 GCJ-02，不执行坐标转换。"
+                    "该模式用于验证高德 POI 点位，减少坐标转换偏差。"
+                )
+            else:
+                lines.append(f"- **地图坐标模式**：{coord_mode or 'approx_wgs84'}")
+                lines.append(
+                    "- **坐标转换说明**：高德 POI 原始坐标为 GCJ-02，"
+                    "地图默认使用近似转换后的 WGS84 坐标进行可视化，"
+                    "仅用于数据 QA 和空间预览，不用于导航或精确测绘。"
+                )
+        else:
+            lines.append("- **地图已生成**：否")
         lines.append("")
         lines.append(
             "这是城市变化雷达的采样观察，并非全面数据扫描。"
@@ -150,7 +203,7 @@ def generate_report(
     lines.append("---")
     lines.append("")
     source_info = "数据来源：高德地图 POI API" if not _is_sample_only(snapshot_rows) else "数据来源：sample POI 数据集"
-    lines.append(f"*报告由 where2go-weekend v0.3.1 自动生成。{source_info}。*")
+    lines.append(f"*报告由 where2go-weekend v0.3.2 自动生成。{source_info}。*")
 
     os.makedirs(output_dir, exist_ok=True)
     filename = f"{weekend_date.isoformat()}_shanghai_weekend.md"

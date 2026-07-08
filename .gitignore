@@ -8,6 +8,7 @@ data/district_change_scores.csv
 data/district_scores.csv
 data/geocode_results.csv
 reports/*.md
+reports/maps/*.html
 __pycache__/
 *.pyc
 *.pyo

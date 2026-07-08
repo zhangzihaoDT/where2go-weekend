@@ -29,14 +29,6 @@
 | 输出形式 | 榜单 / 推荐 | 变化信号 / 观察路线 / 城市选题 |
 | 适合人群 | 消费者决策 | 城市研究者、内容创作者、好奇居民 |
 
-## v0.2 新功能
-
-- **日期级 POI 快照** — 每次运行生成 `data/poi_snapshots/{date}_poi_snapshot.csv`
-- **高德 API 集成** — 通过 `.env` 配置 `AMAP_API_KEY`，自动采集真实数据
-- **变化事件识别** — 对比历史快照，识别 `new_poi` / `disappeared_poi` / `category_growth` / `category_decline`
-- **街区变化指数** — 基于变化事件、新鲜度、低拥挤潜力、路线潜力的综合评分
-- **城市变化雷达报告** — 聚焦变化信号，而非推荐榜单
-
 ## 快速开始
 
 ```bash
@@ -46,15 +38,26 @@ cd where2go-weekend
 # 2. 安装依赖
 pip3 install pyyaml requests python-dotenv
 
-# 3. 复制环境变量文件（可选，用于高德 API）
+# 3. 复制环境变量文件
 cp .env.example .env
-# 编辑 .env，填入 AMAP_API_KEY
+# 编辑 .env，至少填入 AMAP_API_KEY
 
 # 4. 运行
-python3 src/run.py --date 2026-07-11
+python3 src/run.py --weekend-date 2026-07-11 --snapshot-date 2026-07-08
 ```
 
 如果未设置 `AMAP_API_KEY`，项目使用 `data/sample_poi.csv` 运行，无需任何外部服务。
+
+## 环境变量
+
+| 变量 | 用途 | 必需 |
+|------|------|------|
+| `AMAP_API_KEY` | Python POI 采集（Web Service API） | 采集真实 POI 时需要 |
+| `AMAP_API_SECRET` | 高德 Web Service 签名密钥 | 仅开启签名验证时需要 |
+| `AMAP_JS_API_KEY` | HTML 地图展示（JS API） | 地图加载时需要 |
+| `AMAP_SECURITY_JS_CODE` | 高德 JS API 2.0 安全密钥 | 部分 key 配置需要 |
+
+注意：静态 HTML 中暴露 JS API key 只适合本地 MVP。公开发布时需要重新设计 key 管理方式。
 
 ## 输出文件
 
@@ -62,11 +65,11 @@ python3 src/run.py --date 2026-07-11
 |------|------|
 | `data/poi_snapshots/{date}_poi_snapshot.csv` | 日期级 POI 快照 |
 | `data/poi_change_events.csv` | 变化事件列表 |
-| `data/district_scores.csv` | 传统街区评分（v0.1 保留） |
 | `data/district_change_scores.csv` | 街区变化指数 |
-| `reports/YYYY-MM-DD_shanghai_weekend.md` | 城市变化雷达报告 |
+| `reports/{weekend}_shanghai_weekend.md` | 城市变化雷达报告 |
+| `reports/maps/{weekend}_shanghai_weekend_map.html` | 地图预览 |
 
-## v0.2 项目结构
+## 项目结构
 
 ```
 where2go-weekend/
@@ -74,26 +77,31 @@ where2go-weekend/
 ├── .env.example
 ├── .gitignore
 ├── config/
-│   ├── districts.yaml       # 街区配置
-│   └── categories.yaml      # POI 类别配置
+│   ├── districts.yaml
+│   ├── categories.yaml
+│   └── query_budget.yaml
 ├── data/
-│   ├── sample_poi.csv       # 示例 POI 数据
-│   ├── poi_snapshots/       # 日期级 POI 快照
-│   ├── district_scores.csv  # 传统评分
-│   ├── district_change_scores.csv  # 变化指数
-│   └── poi_change_events.csv       # 变化事件
-├── reports/                 # 报告输出目录
+│   ├── sample_poi.csv
+│   ├── poi_snapshots/
+│   └── ...
+├── reports/
+│   ├── maps/
+│   └── .gitkeep
 ├── tests/
 │   ├── test_amap_client.py
 │   ├── test_change_detector.py
 │   ├── test_change_score.py
+│   ├── test_geocode.py
+│   ├── test_map_writer.py
 │   └── test_report_writer.py
 └── src/
-    ├── run.py               # 主入口
-    ├── amap_client.py       # 高德 API + 快照生成
-    ├── change_detector.py   # 变化事件识别
-    ├── scorer.py            # 评分逻辑
-    └── report_writer.py     # 报告生成
+    ├── run.py
+    ├── amap_client.py
+    ├── change_detector.py
+    ├── geocode_districts.py
+    ├── map_writer.py
+    ├── report_writer.py
+    └── scorer.py
 ```
 
 ## 变化指数公式
@@ -110,6 +118,63 @@ change_score =
 - **category_change_score** — 类目增长/减少的活跃度
 - **low_crowding_potential** — 街区低拥挤潜力（网红街区默认偏低）
 - **route_potential_score** — 业态多样性 + 新增 POI 带来的路线价值
+
+## 地图可视化
+
+v0.3.2 起，每次运行自动生成静态 HTML 地图。
+
+### 地图 provider
+
+| provider | 底图 | 坐标 | 用途 |
+|----------|------|------|------|
+| `amap_js`（默认） | 高德 JS API | GCJ-02，不转换 | POI 点位 QA，减少坐标偏差 |
+| `leaflet_osm` | Leaflet + OpenStreetMap | 可选 WGS84 转换 | 开放地图风格，可选输出 |
+
+### 坐标模式（仅 leaflet_osm）
+
+| 模式 | 说明 |
+|------|------|
+| `approx_wgs84`（默认） | GCJ-02 → WGS84 近似转换，用于 OSM 展示 |
+| `raw_gcj02` | GCJ-02 直接叠加到 OSM，可能存在偏移 |
+
+### 为什么默认使用高德 JS API
+
+高德 POI 原始坐标为 GCJ-02。Leaflet + OSM 使用 WGS84 底图，即使做近似转换，在街区尺度下仍可能出现可感知偏移。默认使用高德 JS API 可以减少坐标转换风险，确保地图预览与数据采集在同一坐标体系下闭环。
+
+### 命令行示例
+
+```bash
+# 默认：高德 JS API 地图
+python3 src/run.py --weekend-date 2026-07-11 --snapshot-date 2026-07-08
+
+# Leaflet + OSM 地图（WGS84 转换）
+python3 src/run.py --weekend-date 2026-07-11 --map-provider leaflet_osm --coord-mode approx_wgs84
+
+# Leaflet + OSM 原始 GCJ-02
+python3 src/run.py --weekend-date 2026-07-11 --map-provider leaflet_osm --coord-mode raw_gcj02
+
+# 跳过地图
+python3 src/run.py --weekend-date 2026-07-11 --no-map
+```
+
+## CLI 参数
+
+```bash
+python3 src/run.py --weekend-date <YYYY-MM-DD> [options]
+
+Required:
+  --weekend-date    目标周末日期
+
+Data:
+  --snapshot-date   POI 快照日期（默认今天）
+  --force           忽略缓存，重新请求 API
+  --date            [已弃用] 请使用 --weekend-date
+
+Map:
+  --map-provider    amap_js（默认）| leaflet_osm
+  --coord-mode      approx_wgs84（默认）| raw_gcj02（仅 leaflet_osm 生效）
+  --no-map          跳过地图生成
+```
 
 ## 运行测试
 
@@ -128,6 +193,9 @@ python3 -m unittest discover tests -v
 
 - **v0.1** ✓ sample POI + 街区评分 + Markdown 报告
 - **v0.2** ✓ 高德 API + POI 快照 + 变化事件识别 + 城市变化雷达
-- **v0.3** 每周快照，识别新增 / 消失 POI，积累变化趋势
+- **v0.3** ✓ query budget + cache + geocode 校准 + 日期语义拆分
+- **v0.3.1** ✓ 日期语义拆分（snapshot_date / weekend_date）+ 智慧坊坐标校准
+- **v0.3.2** ✓ Leaflet + OSM 地图可视化（GCJ-02→WGS84）
+- **v0.3.2.1** ✓ 默认地图 provider 切换为高德 JS API + Leaflet 可选保留
 - **v0.4** 加入内容提及数据（小红书、公众号）
 - **v0.5** 生成地图路线与个人偏好推荐

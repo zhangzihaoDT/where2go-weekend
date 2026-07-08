@@ -2,7 +2,6 @@
 import argparse
 import os
 import sys
-import warnings
 from datetime import date
 
 import yaml
@@ -37,6 +36,11 @@ from src.scorer import (
     score_districts,
 )
 from src.report_writer import generate_report
+from src.map_writer import generate_map
+
+
+COORD_MODES = ("approx_wgs84", "raw_gcj02")
+MAP_PROVIDERS = ("amap_js", "leaflet_osm")
 
 
 def main():
@@ -54,11 +58,21 @@ def main():
         help="[已弃用] 请使用 --weekend-date",
     )
     parser.add_argument("--force", action="store_true", help="忽略缓存，重新请求 API")
+    parser.add_argument("--no-map", action="store_true", help="跳过地图生成")
+    parser.add_argument(
+        "--map-provider", dest="map_provider", default="amap_js",
+        choices=MAP_PROVIDERS,
+        help=f"地图 provider，默认 amap_js，可选 {MAP_PROVIDERS}",
+    )
+    parser.add_argument(
+        "--coord-mode", dest="coord_mode", default="approx_wgs84",
+        choices=COORD_MODES,
+        help=f"坐标模式（仅 leaflet_osm 时生效），默认 approx_wgs84，可选 {COORD_MODES}",
+    )
     args = parser.parse_args()
 
     today = date.today()
 
-    # Deprecated --date handling
     if args.date_deprecated:
         if args.weekend_date_str:
             parser.error("不能同时使用 --date 和 --weekend-date。请只使用 --weekend-date。")
@@ -75,7 +89,10 @@ def main():
     else:
         snapshot_date = today
 
-    print(f"      快照日期: {snapshot_date.isoformat()}, 周末目标: {weekend_date.isoformat()}")
+    if args.map_provider == "amap_js" and args.coord_mode != "approx_wgs84":
+        print("⚠  warning: coord_mode is ignored when map_provider=amap_js.", file=sys.stderr)
+    print(f"      快照日期: {snapshot_date.isoformat()}, 周末目标: {weekend_date.isoformat()}, "
+          f"地图 provider: {args.map_provider}, 坐标模式: {args.coord_mode}")
 
     districts_path = os.path.join(PROJECT_ROOT, "config", "districts.yaml")
     categories_path = os.path.join(PROJECT_ROOT, "config", "categories.yaml")
@@ -88,6 +105,7 @@ def main():
     skipped_path = os.path.join(PROJECT_ROOT, "data", "skipped_queries.csv")
     summary_path = os.path.join(PROJECT_ROOT, "data", "collection_summary.csv")
     reports_dir = os.path.join(PROJECT_ROOT, "reports")
+    maps_dir = os.path.join(reports_dir, "maps")
 
     print("[1/6] 读取街区配置...")
     with open(districts_path, encoding="utf-8") as f:
@@ -136,10 +154,6 @@ def main():
             district_cache = 0
             district_skipped = 0
 
-            # Track keyword skip for tier limits
-            for kw, cat_id in keyword_plan:
-                pass
-            # Reserve slots for tier limit calculation
             kw_index = 0
             page_district_pois = []
 
@@ -285,6 +299,30 @@ def main():
     weekend_scores = score_districts(snapshot_rows, district_map)
     write_scores_csv(weekend_scores, scores_path)
 
+    # Map generation
+    map_path = None
+    if not args.no_map and snapshot_path and os.path.isfile(snapshot_path):
+        try:
+            map_filename = f"{weekend_date.isoformat()}_shanghai_weekend_map.html"
+            map_path = os.path.join(maps_dir, map_filename)
+            generate_map(
+                poi_snapshot_path=snapshot_path,
+                districts_path=districts_path,
+                output_path=map_path,
+                snapshot_date=snapshot_date.isoformat(),
+                weekend_date=weekend_date.isoformat(),
+                provider=args.map_provider,
+                coord_mode=args.coord_mode,
+            )
+            print(f"      地图已生成: {map_path} (provider: {args.map_provider})")
+        except Exception as e:
+            print(f"      ⚠ 地图生成失败: {e}")
+            map_path = None
+    elif args.no_map:
+        print("      地图已跳过 (--no-map)")
+    else:
+        print("      地图已跳过 (快照文件不存在)")
+
     print("[6/6] 生成城市变化雷达报告...")
     report_path = generate_report(
         change_scores=change_scores,
@@ -295,6 +333,9 @@ def main():
         weekend_date=weekend_date,
         has_previous_snapshot=has_history,
         collection_state=state,
+        map_path=map_path,
+        coord_mode=args.coord_mode,
+        map_provider=args.map_provider,
     )
     print(f"      报告已生成: {report_path}")
 
