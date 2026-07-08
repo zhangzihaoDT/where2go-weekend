@@ -1,0 +1,117 @@
+city: 上海
+
+scan_strategy:
+  default_mode: text_city_first
+  enable_around_fallback: true
+  fallback_min_brand_poi_count: 3
+  max_total_requests: 500
+
+amap:
+  api_key_env: AMAP_API_KEY
+  text_api_base: https://restapi.amap.com/v3/place/text
+  around_api_base: https://restapi.amap.com/v3/place/around
+  city_limit: true
+  extensions: all
+  retry: 3
+  timeout_seconds: 10
+  sleep_seconds: 1.0
+  cache_enabled: true
+  cache_dir: data/cache/amap_brand_poi_raw
+
+scan_area:
+  offset: 25
+  max_pages: 20
+  # Grid around mode (not default)
+  grid_bbox:
+    min_lng: 120.85
+    min_lat: 30.67
+    max_lng: 122.12
+    max_lat: 31.87
+  grid_step_km: 4
+  grid_radius_m: 3500
+
+fallback_scan_points:
+  - name: 人民广场
+    lng: 121.4737
+    lat: 31.2304
+  - name: 陆家嘴
+    lng: 121.4998
+    lat: 31.2397
+  - name: 徐家汇
+    lng: 121.4368
+    lat: 31.1885
+  - name: 虹桥
+    lng: 121.3260
+    lat: 31.2000
+  - name: 五角场
+    lng: 121.5149
+    lat: 31.2989
+  - name: 嘉定新城
+    lng: 121.2540
+    lat: 31.3510
+  - name: 松江新城
+    lng: 121.2288
+    lat: 31.0326
+  - name: 青浦新城
+    lng: 121.1242
+    lat: 31.1507
+  - name: 奉贤南桥
+    lng: 121.4740
+    lat: 30.9178
+  - name: 临港新片区
+    lng: 121.9050
+    lat: 30.9000
+
+brands:
+  - brand_id: im_motors
+    display_name: 智己
+    marker_color: "#174A7C"
+    queries:
+      - 智己汽车
+      - 智己体验中心
+      - 智己交付中心
+      - 智己服务中心
+    include_keywords:
+      - 智己
+      - IM
+    exclude_keywords:
+      - 招聘
+      - 办公楼
+
+  - brand_id: nio
+    display_name: 蔚来
+    marker_color: "#7ECDEB"
+    queries:
+      - 蔚来中心
+      - 蔚来空间
+      - 蔚来服务中心
+      - 蔚来交付中心
+    include_keywords:
+      - 蔚来
+      - NIO
+    exclude_keywords:
+      - 换电站
+      - 充电站
+      - 超充
+      - 加电
+      - 能源站
+
+  - brand_id: harmony_auto
+    display_name: 鸿蒙智行
+    marker_color: "#D79A36"
+    queries:
+      - 鸿蒙智行
+      - 鸿蒙智行用户中心
+      - 鸿蒙智行体验中心
+      - 问界用户中心
+      - AITO授权用户中心
+    include_keywords:
+      - 鸿蒙智行
+      - AITO
+      - 问界
+      - 用户中心
+    exclude_keywords:
+      - 华为手机
+      - 华为授权服务中心
+      - 华为智能生活馆
+      - 充电站
