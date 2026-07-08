@@ -158,6 +158,18 @@ def _amap_key_status() -> dict:
     }
 
 
+import json
+
+
+def _valid_coords(r: dict) -> bool:
+    try:
+        lng = float(r.get("lng", 0))
+        lat = float(r.get("lat", 0))
+        return lng != 0 and lat != 0
+    except (ValueError, TypeError):
+        return False
+
+
 def generate_amap_js_map(
     poi_snapshot_path: str,
     districts_path: str,
@@ -167,7 +179,7 @@ def generate_amap_js_map(
 ) -> str:
     """Generate a HTML map using AMap JS API with raw GCJ-02 coordinates."""
     rows = _load_snapshot_rows(poi_snapshot_path)
-    districts = _load_districts(districts_path)
+    districts_raw = _load_districts(districts_path)
 
     key_info = _amap_key_status()
     has_js_key = key_info["has_js_key"]
@@ -179,6 +191,37 @@ def generate_amap_js_map(
     center_lat = 31.23
     poi_count = len(rows)
 
+    # Prepare JSON-serializable district data
+    district_data = []
+    for d in districts_raw:
+        district_data.append({
+            "name": d.get("name", ""),
+            "center_lng": d.get("center_lng", 0),
+            "center_lat": d.get("center_lat", 0),
+            "radius_m": d.get("radius_m", 500),
+        })
+
+    # Prepare JSON-serializable POI data with category info
+    poi_data = []
+    for r in rows:
+        if not _valid_coords(r):
+            continue
+        cat = r.get("category_id", "unknown")
+        label = CATEGORY_LABELS.get(cat, cat)
+        poi_data.append({
+            "lng": float(r.get("lng", 0)),
+            "lat": float(r.get("lat", 0)),
+            "cat": cat,
+            "name": r.get("name", "?"),
+            "dname": r.get("district_name", ""),
+            "label": label,
+            "addr": r.get("address", ""),
+            "src": r.get("source", ""),
+            "kw": r.get("keyword", ""),
+        })
+
+    district_json = json.dumps(district_data, ensure_ascii=False)
+    poi_json = json.dumps(poi_data, ensure_ascii=False)
     parts = []
 
     # ── HTML head ──
@@ -199,6 +242,53 @@ def generate_amap_js_map(
   .legend { line-height: 1.8; }
   .legend i { width: 14px; height: 14px; display: inline-block; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
   .warning { background:#FFF3CD; border-left:4px solid #D79A36; padding:8px 14px; font-size:13px; margin:0 0 4px 0; }
+  /* ── District paper-tag markers ── */
+  .district-marker-wrap {
+    display: inline-block; width: max-content;
+    white-space: nowrap; cursor: pointer;
+  }
+  .district-marker {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 5px 10px 5px 6px; border-radius: 999px;
+    background: #FFF9EF; border: 1px solid #D79A36;
+    box-shadow: 0 3px 10px rgba(31,45,61,0.16);
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+    white-space: nowrap;
+    width: max-content; min-width: max-content;
+  }
+  .district-rank {
+    width: 20px; height: 20px; border-radius: 999px;
+    background: #174A7C; color: #fff;
+    font-size: 12px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .district-main {
+    display: flex; flex-direction: column;
+    min-width: max-content; white-space: nowrap;
+  }
+  .district-name {
+    font-size: 13px; font-weight: 700; color: #1F2D3D;
+    line-height: 1.2; white-space: nowrap;
+  }
+  /* ── POI dot markers ── */
+  .poi-marker-wrap { cursor: pointer; }
+  .poi-marker-wrap:hover .poi-marker { transform: scale(1.3); }
+  .poi-marker {
+    width: 16px; height: 16px; border-radius: 999px;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(255,249,239,0.92);
+    border: 1px solid rgba(31,45,61,0.18);
+    box-shadow: 0 2px 6px rgba(31,45,61,0.20);
+    transition: transform 0.15s;
+  }
+  .poi-marker:hover { transform: scale(1.3); }
+  .poi-dot { width: 8px; height: 8px; border-radius: 999px; background: #6B7280; }
+  .poi-coffee .poi-dot { background: #D4A574; }
+  .poi-food_light .poi-dot { background: #7ECDEB; }
+  .poi-art_space .poi-dot { background: #D79A36; }
+  .poi-lifestyle .poi-dot { background: #174A7C; }
+  .poi-compound_space .poi-dot { background: #7A4A24; }
   @media (max-width: 600px) { #map { height: 60vh; } }
 </style>
 </head>
@@ -221,111 +311,168 @@ def generate_amap_js_map(
         # No key — still include script (will fail silently) for testability
         parts.append("""<script src="https://webapi.amap.com/maps?v=2.0&key=NO_KEY"></script>""")
 
-    parts.append(f"""<script>
-var map = new AMap.Map('map', {{
-  center: [{center_lng}, {center_lat}],
+    parts.append("""<script>
+var map = new AMap.Map('map', {
+  center: [""" + str(center_lng) + ", " + str(center_lat) + """],
   zoom: 13,
   viewMode: '2D',
-}});
-var bounds = [];""")
+});
+var bounds = [];
+var districtMarkers = [];
+var poiMarkers = [];
 
-    # ── District circles (AMap.Circle) ──
-    for d in districts:
-        dlng = d.get("center_lng", 0)
-        dlat = d.get("center_lat", 0)
-        radius = d.get("radius_m", 500)
-        name = _js_str(d.get("name", ""))
-        parts.append(f"""
-  new AMap.Circle({{
-    center: [{dlng}, {dlat}],
-    radius: {radius},
-    strokeColor: '#174A7C',
-    strokeWeight: 1.5,
-    fillColor: '#DDEFF8',
-    fillOpacity: 0.2,
-  }}).setMap(map);
-  new AMap.Marker({{
-    position: [{dlng}, {dlat}],
-    label: {{content: '<div style="background:#174A7C;color:#fff;border-radius:4px;padding:2px 6px;font-size:11px;white-space:nowrap;">{name}</div>', direction: 'top'}},
-  }}).setMap(map);
-  bounds.push([{dlat}, {dlng}]);""")
+  /* ---------- Helpers ---------- */
+  function safeClassName(value) {
+    return String(value || 'default').toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+  }
 
-    # ── POI markers (IIFE closure per marker) ──
-    for r in rows:
-        try:
-            plng = float(r.get("lng", 0))
-            plat = float(r.get("lat", 0))
-        except (ValueError, TypeError):
-            continue
-        if plng == 0 and plat == 0:
-            continue
-        cat = r.get("category_id", "unknown")
-        color = CATEGORY_COLORS.get(cat, "#999999")
-        label = CATEGORY_LABELS.get(cat, cat)
-        name = _js_str(r.get("name", "?"))
-        dname = _js_str(r.get("district_name", ""))
-        addr = _js_str(r.get("address", ""))
-        src = _js_str(r.get("source", ""))
-        kw = _js_str(r.get("keyword", ""))
-        parts.append(f"""
-  (function() {{
-    var m = new AMap.Marker({{
-      position: [{plng}, {plat}],
-      content: '<div style="width:10px;height:10px;background:{color};border:1px solid #333;border-radius:50%;"></div>',
-      offset: new AMap.Pixel(-5, -5),
-    }});
-    m.setMap(map);
-    m.on('click', function() {{
-      var info = new AMap.InfoWindow({{
-        content: '<div style="font-size:13px;line-height:1.6;"><b>{name}</b><br>街区: {dname}<br>类目: {label}<br>地址: {addr}<br>source: {src}<br>keyword: {kw}<br>source_crs: GCJ-02<br>coord_transform: none</div>',
-        offset: new AMap.Pixel(0, -30),
-      }});
-      info.open(map, m.getPosition());
-    }});
-    bounds.push([{plat}, {plng}]);
-  }})();""")
+  /* ---------- Factory: createHtmlMarker ---------- */
+  function createHtmlMarker(opt) {
+    var marker = new AMap.Marker({
+      map: map,
+      position: opt.position,
+      content: opt.content,
+      anchor: opt.anchor || 'center',
+      zIndex: opt.zIndex || 20,
+      extData: opt.extData || {},
+      cursor: 'pointer',
+    });
+    return { marker: marker, el: opt.content };
+  }
 
-    # ── Legend ──
+  /* ---------- createDistrictElement ---------- */
+  function createDistrictElement(district, index) {
+    var wrap = document.createElement('div');
+    wrap.className = 'district-marker-wrap';
+
+    var root = document.createElement('div');
+    root.className = 'district-marker';
+
+    var rank = document.createElement('div');
+    rank.className = 'district-rank';
+    rank.textContent = String(index + 1);
+
+    var main = document.createElement('div');
+    main.className = 'district-main';
+
+    var nameEl = document.createElement('div');
+    nameEl.className = 'district-name';
+    nameEl.textContent = district.name || '';
+
+    main.appendChild(nameEl);
+    root.appendChild(rank);
+    root.appendChild(main);
+    wrap.appendChild(root);
+
+    return wrap;
+  }
+
+  /* ---------- createPoiElement ---------- */
+  function createPoiElement(poi) {
+    var cls = 'poi-marker poi-' + safeClassName(poi.cat);
+
+    var wrap = document.createElement('div');
+    wrap.className = 'poi-marker-wrap ' + cls;
+    wrap.title = poi.name || '';
+
+    var dot = document.createElement('span');
+    dot.className = 'poi-dot';
+
+    wrap.appendChild(dot);
+    return wrap;
+  }
+
+  /* ---------- District circles + paper-tag markers ---------- */
+  var districtData = """ + district_json + """;
+  districtData.forEach(function(d, i) {
+    new AMap.Circle({
+      center: [d.center_lng, d.center_lat],
+      radius: d.radius_m || 500,
+      strokeColor: '#174A7C', strokeWeight: 1.5,
+      fillColor: '#DDEFF8', fillOpacity: 0.2,
+    }).setMap(map);
+    var el = createDistrictElement(d, i);
+    var result = createHtmlMarker({
+      position: [d.center_lng, d.center_lat],
+      content: el,
+      zIndex: 50,
+      anchor: 'top-center',
+      extData: d,
+    });
+    districtMarkers.push(result.marker);
+    bounds.push([d.center_lat, d.center_lng]);
+  });
+
+  /* ── Shared InfoWindow ── */
+  var _infoWin = new AMap.InfoWindow({offset: new AMap.Pixel(0, -30)});
+  function _showPoiInfo(e) {
+    var d = e.target.getExtData();
+    _infoWin.setContent(
+      '<div style=\\"font-size:13px;line-height:1.6;max-width:280px;\\">' +
+      '<b>' + d.name + '</b><br>' +
+      '街区: ' + d.dname + '<br>' +
+      '类目: ' + d.label + '<br>' +
+      '地址: ' + d.addr + '<br>' +
+      'source: ' + d.src + '<br>' +
+      'keyword: ' + d.kw + '<br>' +
+      'source_crs: GCJ-02<br>' +
+      'coord_transform: none</div>'
+    );
+    _infoWin.open(map, e.target.getPosition());
+  }
+
+  /* ---------- POI dot markers ---------- */
+  var poiData = """ + poi_json + """;
+  poiData.forEach(function(p) {
+    var el = createPoiElement(p);
+    var result = createHtmlMarker({
+      position: [p.lng, p.lat],
+      content: el,
+      zIndex: 30,
+      extData: p,
+    });
+    result.marker.on('click', _showPoiInfo);
+    poiMarkers.push(result.marker);
+    bounds.push([p.lat, p.lng]);
+  });
+
+  map.setFitView(null, false, [40, 40, 40, 40]);
+</script>""")
+
+    # ── Static legend + info below map ──
     parts.append("""
-  var legend = new AMap.Control({position: 'LB'});
-  legend.onAdd = function() {
-    var div = document.createElement('div');
-    div.className = 'info-box legend';
-    div.innerHTML = '<h3>图例</h3>';""")
+<div style="max-width:100%;margin:8px 16px;font-family:-apple-system,'Helvetica Neue',sans-serif;">
+<div style="display:flex;flex-wrap:wrap;gap:12px 24px;">
+  <div class="info-box" style="flex:1;min-width:200px;">
+    <h3>图例</h3>
+    <div class="legend">""")
     for cat, color in CATEGORY_COLORS.items():
         clabel = CATEGORY_LABELS.get(cat, cat)
-        parts.append(f"""    div.innerHTML += '<i style="background:{color}"></i> {clabel}<br>';""")
-    parts.append("""    return div;
-  };
-  map.addControl(legend);""")
-
-    # ── Info ──
-    parts.append(f"""
-  var info = new AMap.Control({{position: 'RT'}});
-  info.onAdd = function() {{
-    var div = document.createElement('div');
-    div.className = 'info-box';
-    div.innerHTML = '<h3>数据说明</h3>' +
-      '快照日期: <b>{snapshot_date}</b><br>' +
-      '目标周末: <b>{weekend_date}</b><br>' +
-      'POI 数量: <b>{poi_count}</b><br>' +
-      '街区数量: <b>{len(districts)}</b><br>' +
-      '地图 provider: <b>amap_js</b><br>' +
-      'source_crs: <b>GCJ-02</b><br>' +
-      'map_crs: <b>GCJ-02</b><br>' +
-      'coord_transform: <b>none</b><br>' +
-      '<hr style="margin:6px 0">' +
-      '本地图使用高德 JS API 底图，POI 坐标来自高德 Web Service，坐标体系为 GCJ-02。' +
-      '该模式用于验证高德 POI 点位，减少坐标转换偏差。';
-    return div;
-  }};
-  map.addControl(info);""")
-
-    parts.append("""
-  map.setFitView(null, false, [40, 40, 40, 40]);
-</script>
+        parts.append(f'      <i style="background:{color};width:10px;height:10px;display:inline-block;border-radius:50%;margin-right:6px"></i> {clabel}<br>')
+    parts.append(f"""    </div>
+  </div>
+  <div class="info-box" style="flex:2;min-width:240px;">
+    <h3>数据说明</h3>
+    快照日期: <b>{snapshot_date}</b><br>
+    目标周末: <b>{weekend_date}</b><br>
+    POI 数量: <b>{len(poi_data)}</b> | 街区数量: <b>{len(district_data)}</b><br>
+    地图 provider: <b>amap_js</b> | 坐标体系: <b>GCJ-02</b><br>
+    <hr style="margin:6px 0">
+    <div style="font-size:12px;color:#6B7C8F;">
+      本地图使用高德 JS API 底图，POI 坐标来自高德 Web Service，坐标体系为 GCJ-02。
+      该模式用于验证高德 POI 点位，减少坐标转换偏差。
+    </div>
+  </div>
+</div>
+</div>
 </body>
 </html>""")
+
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    html = "\n".join(parts)
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(html)
+    return output_path
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     html = "\n".join(parts)
