@@ -46,6 +46,12 @@ def _js_str(s: str) -> str:
 # ── HTML map ──
 
 
+# ── AMap style defaults (same as map_writer.py) ──
+
+DEFAULT_AMAP_STYLE = "amap://styles/grey"
+DEFAULT_AMAP_FEATURES = ("bg", "road")
+
+
 def generate_brand_poi_map(
     poi_rows: list[dict],
     output_path: str,
@@ -56,6 +62,8 @@ def generate_brand_poi_map(
     has_sec_code: bool,
     js_key: str = "",
     sec_code: str = "",
+    map_style: str = DEFAULT_AMAP_STYLE,
+    map_features: tuple[str, ...] = DEFAULT_AMAP_FEATURES,
 ):
     config = _load_config()
     color_map = _brand_color_map(config)
@@ -112,11 +120,20 @@ def generate_brand_poi_map(
     else:
         html_parts.append("""<script src="https://webapi.amap.com/maps?v=2.0&key=NO_KEY"></script>""")
 
+    features_json = json.dumps(list(map_features), ensure_ascii=True)
+
     html_parts.append(f"""<script>
 var map = new AMap.Map('map', {{
   center: [{center_lng}, {center_lat}],
   zoom: 10,
+  mapStyle: "{map_style}",
+  features: {features_json},
   viewMode: '2D',
+  pitch: 0,
+  rotation: 0,
+  rotateEnable: false,
+  pitchEnable: false,
+  doubleClickZoom: false,
 }});
 var allMarkers = [];
 var filterState = {{}};

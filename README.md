@@ -63,7 +63,7 @@ python3 src/run.py --weekend-date 2026-07-11 --snapshot-date 2026-07-08
 
 | 文件 | 说明 |
 |------|------|
-| `data/poi_snapshots/{date}_poi_snapshot.csv` | 日期级 POI 快照 |
+| `data/weekend_district_poi/{date}_poi_snapshot.csv` | 日期级 POI 快照 |
 | `data/poi_change_events.csv` | 变化事件列表 |
 | `data/district_change_scores.csv` | 街区变化指数 |
 | `reports/{weekend}_shanghai_weekend.md` | 城市变化雷达报告 |

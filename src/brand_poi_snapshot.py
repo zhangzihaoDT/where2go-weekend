@@ -1,7 +1,7 @@
 """
 Brand POI Snapshot — dir, manifest, schema, read/write.
 
-Snapshots live under data/brand_poi/snapshots/{date}_{city}/.
+Snapshots live under data/brand_stores/snapshots/{date}_{city}/.
 
 Structure:
   snapshots/{date}_{city}/
@@ -12,7 +12,7 @@ Structure:
     summary.json       (from analyze)
     analysis.md        (from analyze)
 
-Compare results live under data/brand_poi/compares/:
+Compare results live under data/brand_stores/compares/:
   compares/{base_id}__vs__{target_id}/
     compare.json
     compare.md
@@ -24,9 +24,9 @@ import os
 from datetime import datetime
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SNAPSHOT_BASE = os.path.join(PROJECT_ROOT, "data", "brand_stores", "snapshots")
 
-SNAPSHOT_BASE = os.path.join(PROJECT_ROOT, "data", "brand_poi", "snapshots")
-COMPARE_BASE = os.path.join(PROJECT_ROOT, "data", "brand_poi", "compares")
+COMPARE_BASE = os.path.join(PROJECT_ROOT, "data", "brand_stores", "compares")
 
 REQUIRED_CSV_COLUMNS = [
     "brand_id", "brand_name", "name", "district",

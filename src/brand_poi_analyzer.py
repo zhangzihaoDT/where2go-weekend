@@ -8,7 +8,7 @@ spatial overlap (nearest neighbor via Haversine), and data quality flags.
 Usage:
   python3 src/brand_poi_analyzer.py --date 2026-07-08
   python3 src/brand_poi_analyzer.py --city 上海 --date 2026-07-08
-  python3 src/brand_poi_analyzer.py --input data/brand_poi/上海_brand_poi_2026-07-08.csv
+   python3 src/brand_poi_analyzer.py --input data/brand_stores/上海_brand_poi_2026-07-08.csv
 """
 
 import argparse
@@ -64,7 +64,7 @@ def parse_args(argv=None):
     parser.add_argument("--city", default="上海", help="城市")
     parser.add_argument("--date", dest="date_str", help="日期 YYYY-MM-DD")
     parser.add_argument("--input", help="输入 CSV 路径")
-    parser.add_argument("--output-dir", default="data/brand_poi", help="输出目录")
+    parser.add_argument("--output-dir", default="data/brand_stores", help="输出目录")
     parser.add_argument("--report-dir", default="reports", help="报告目录")
     parser.add_argument("--top-n", type=int, default=20, help="需复核 POI 最多展示条数")
     return parser.parse_args(argv)

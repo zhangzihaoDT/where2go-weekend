@@ -14,6 +14,8 @@ from src.map_writer import (
     generate_map,
     gcj02_to_wgs84_approx,
     transform_poi_coords,
+    DEFAULT_AMAP_STYLE,
+    DEFAULT_AMAP_FEATURES,
 )
 
 
@@ -246,6 +248,95 @@ class TestAmapJsMap(unittest.TestCase):
             self.assertIn("2026-07-08", content)
             self.assertIn("2026-07-11", content)
 
+    # ── AMap style tests ──
+
+    def test_default_amap_style_grey(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sp = os.path.join(tmp, "snap.csv")
+            _make_snapshot_csv(sp, [_make_poi_row()])
+            dp = os.path.join(tmp, "dist.yaml")
+            _make_districts(dp)
+            out = os.path.join(tmp, "map.html")
+            generate_amap_js_map(sp, dp, out, "2026-07-08", "2026-07-11")
+            with open(out) as f:
+                content = f.read()
+            self.assertIn("mapStyle", content)
+            self.assertIn("amap://styles/grey", content)
+
+    def test_default_amap_features_bg_road(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sp = os.path.join(tmp, "snap.csv")
+            _make_snapshot_csv(sp, [_make_poi_row()])
+            dp = os.path.join(tmp, "dist.yaml")
+            _make_districts(dp)
+            out = os.path.join(tmp, "map.html")
+            generate_amap_js_map(sp, dp, out, "2026-07-08", "2026-07-11")
+            with open(out) as f:
+                content = f.read()
+            for feat in DEFAULT_AMAP_FEATURES:
+                self.assertIn(f'"{feat}"', content)
+
+    def test_no_building_or_point_in_features(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sp = os.path.join(tmp, "snap.csv")
+            _make_snapshot_csv(sp, [_make_poi_row()])
+            dp = os.path.join(tmp, "dist.yaml")
+            _make_districts(dp)
+            out = os.path.join(tmp, "map.html")
+            generate_amap_js_map(sp, dp, out, "2026-07-08", "2026-07-11")
+            with open(out) as f:
+                content = f.read()
+            features_idx = content.index("features")
+            features_section = content[features_idx:features_idx+200]
+            self.assertNotIn("building", features_section)
+            self.assertNotIn("point", features_section)
+
+    def test_rotate_pitch_disabled(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sp = os.path.join(tmp, "snap.csv")
+            _make_snapshot_csv(sp, [_make_poi_row()])
+            dp = os.path.join(tmp, "dist.yaml")
+            _make_districts(dp)
+            out = os.path.join(tmp, "map.html")
+            generate_amap_js_map(sp, dp, out, "2026-07-08", "2026-07-11")
+            with open(out) as f:
+                content = f.read()
+            self.assertIn("rotateEnable: false", content)
+            self.assertIn("pitchEnable: false", content)
+            self.assertIn("pitch: 0", content)
+            self.assertIn("rotation: 0", content)
+
+    def test_no_traffic_hawkeye_maptype(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sp = os.path.join(tmp, "snap.csv")
+            _make_snapshot_csv(sp, [_make_poi_row()])
+            dp = os.path.join(tmp, "dist.yaml")
+            _make_districts(dp)
+            out = os.path.join(tmp, "map.html")
+            generate_amap_js_map(sp, dp, out, "2026-07-08", "2026-07-11")
+            with open(out) as f:
+                content = f.read()
+            self.assertNotIn("Traffic", content)
+            self.assertNotIn("HawkEye", content)
+            self.assertNotIn("MapType", content)
+
+    def test_custom_amap_parameters(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sp = os.path.join(tmp, "snap.csv")
+            _make_snapshot_csv(sp, [_make_poi_row()])
+            dp = os.path.join(tmp, "dist.yaml")
+            _make_districts(dp)
+            out = os.path.join(tmp, "map.html")
+            generate_amap_js_map(
+                sp, dp, out, "2026-07-08", "2026-07-11",
+                map_style="amap://styles/grey",
+                map_features=("bg", "road", "building"),
+            )
+            with open(out) as f:
+                content = f.read()
+            self.assertIn("amap://styles/grey", content)
+            self.assertIn('"building"', content)
+
 
 # ── Leaflet + OSM ──
 
@@ -323,6 +414,21 @@ class TestLeafletOsmMap(unittest.TestCase):
             out = os.path.join(tmp, "map.html")
             generate_leaflet_osm_map(sp, dp, out, "2026-07-08", "2026-07-11")
             self.assertTrue(os.path.isfile(out))
+
+    def test_leaflet_not_affected_by_amap_style(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sp = os.path.join(tmp, "snap.csv")
+            _make_snapshot_csv(sp, [_make_poi_row()])
+            dp = os.path.join(tmp, "dist.yaml")
+            _make_districts(dp)
+            out = os.path.join(tmp, "map.html")
+            generate_leaflet_osm_map(sp, dp, out, "2026-07-08", "2026-07-11")
+            with open(out) as f:
+                content = f.read()
+            self.assertNotIn("amap://styles", content)
+            self.assertNotIn("features", content)
+            self.assertNotIn("rotateEnable", content)
+            self.assertNotIn("pitchEnable", content)
 
 
 if __name__ == "__main__":

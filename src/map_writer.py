@@ -144,6 +144,12 @@ def _load_districts(path: str) -> list[dict]:
 # ══════════════════════════════════════════════════════════
 
 
+# ── AMap style defaults ──
+
+DEFAULT_AMAP_STYLE = "amap://styles/grey"
+DEFAULT_AMAP_FEATURES = ("bg", "road")
+
+
 def _amap_key_status() -> dict:
     """Check AMap JS API key config. Never returns secrets."""
     from dotenv import load_dotenv
@@ -176,6 +182,8 @@ def generate_amap_js_map(
     output_path: str,
     snapshot_date: str,
     weekend_date: str,
+    map_style: str = DEFAULT_AMAP_STYLE,
+    map_features: tuple[str, ...] = DEFAULT_AMAP_FEATURES,
 ) -> str:
     """Generate a HTML map using AMap JS API with raw GCJ-02 coordinates."""
     rows = _load_snapshot_rows(poi_snapshot_path)
@@ -311,11 +319,20 @@ def generate_amap_js_map(
         # No key — still include script (will fail silently) for testability
         parts.append("""<script src="https://webapi.amap.com/maps?v=2.0&key=NO_KEY"></script>""")
 
+    features_json = json.dumps(list(map_features), ensure_ascii=True)
+
     parts.append("""<script>
 var map = new AMap.Map('map', {
   center: [""" + str(center_lng) + ", " + str(center_lat) + """],
   zoom: 13,
+  mapStyle: \"""" + map_style + """\",
+  features: """ + features_json + """,
   viewMode: '2D',
+  pitch: 0,
+  rotation: 0,
+  rotateEnable: false,
+  pitchEnable: false,
+  doubleClickZoom: false,
 });
 var bounds = [];
 var districtMarkers = [];
@@ -639,17 +656,21 @@ def generate_map(
     weekend_date: str,
     provider: str = "amap_js",
     coord_mode: str = "approx_wgs84",
+    **kwargs,
 ) -> str:
     """Unified map generation entry point.
 
     Args:
         provider: 'amap_js' (default) or 'leaflet_osm'
         coord_mode: 'approx_wgs84' (default) or 'raw_gcj02'; only used for leaflet_osm
+        **kwargs: forwarded to provider-specific functions
+            (map_style, map_features, min_zoom, max_zoom for amap_js)
     """
     if provider == "amap_js":
         return generate_amap_js_map(
             poi_snapshot_path, districts_path, output_path,
             snapshot_date, weekend_date,
+            **kwargs,
         )
     elif provider == "leaflet_osm":
         return generate_leaflet_osm_map(
