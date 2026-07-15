@@ -4,6 +4,7 @@ import os
 import re
 import sys
 import unicodedata
+from collections import defaultdict
 from datetime import date
 
 import yaml
@@ -26,6 +27,7 @@ from src.amap_client import (
     EXEC_STATUS_CACHE_HIT,
     EXEC_STATUS_SKIPPED_BUDGET,
     EXEC_STATUS_SKIPPED_KEYWORD_LIMIT,
+    EXEC_STATUS_FAILED_API,
     write_skipped_csv,
     write_collection_summary,
     compute_config_fingerprint,
@@ -51,6 +53,15 @@ from src.scorer import (
 )
 from src.report_writer import generate_report
 from src.map_writer import generate_map
+from src.collection_scheduler import (
+    build_plan,
+    estimate_requests,
+    build_second_page_slots,
+    EXEC_STATUS_NOT_ATTEMPTED_QUOTA_BLOCKED,
+    QPSTimer,
+    RequestPlan,
+    RequestSlot,
+)
 
 
 COORD_MODES = ("approx_wgs84", "raw_gcj02")
@@ -108,6 +119,10 @@ def main():
         "--coord-mode", dest="coord_mode", default="approx_wgs84",
         choices=COORD_MODES,
         help=f"坐标模式（仅 leaflet_osm 时生效），默认 approx_wgs84，可选 {COORD_MODES}",
+    )
+    parser.add_argument(
+        "--estimate-requests", action="store_true",
+        help="估算请求量并退出，不调用 API",
     )
     args = parser.parse_args()
 
@@ -169,11 +184,14 @@ def main():
 
     use_real_api = has_api_key()
     state = CollectionState(
-        daily_max=budget_config.get("daily_max_requests", 30),
+        daily_max=budget_config.get("max_requests_per_run") or budget_config.get("daily_max_requests", 30),
         per_district_max=budget_config.get("per_district_max_requests", 10),
         force=args.force,
         api_key_present=use_real_api,
     )
+    max_qps = budget_config.get("rate_limit", {}).get("max_qps", 0)
+    if max_qps > 0 and use_real_api:
+        state.qps_timer = QPSTimer(max_qps=max_qps)
 
     with open(categories_path, encoding="utf-8") as f:
         cat_config = yaml.safe_load(f)
@@ -188,140 +206,279 @@ def main():
         district_config, cat_config, budget_config
     )
 
+    if args.estimate_requests:
+        est = estimate_requests(district_config, cat_config, budget_config)
+        kw_allowed = est['total_candidates'] - est['keyword_limit_excluded']
+        print("=== 请求量估算 ===")
+        print(f"  候选请求数:          {est['total_candidates']}")
+        print(f"  关键词上限排除:      {est['keyword_limit_excluded']}")
+        print(f"  关键词排除后候选:    {kw_allowed}")
+        print(f"  基础第一页计划:      {est['first_page_base']}")
+        print(f"  动态第二页上限:      {est['second_page_upper']}")
+        print(f"  单次运行预算:        {est['max_requests_per_run']}")
+        print(f"  预计最少请求数:      {est['estimated_min_requests']}")
+        print(f"  预计最多请求数:      {est['estimated_max_requests']}")
+        print(f"  分页大小:            {est['page_size']}")
+        print(f"  自适应分页:          {est['adaptive_pagination']}")
+        print(f"\n  各区域第一页覆盖:")
+        for did, cnt in est.get("per_district_first_page", {}).items():
+            print(f"    {did}: {cnt} 个关键词")
+        return
+
     snapshot_rows = []
     needs_fallback = False
 
     if use_real_api:
         print("      检测到 AMAP_API_KEY，使用高德 API 采集")
-        district_summaries = []
 
-        for did, dcfg in district_map.items():
-            tier_key = did
-            tier = budget_config.get("district_tiers", {}).get(tier_key, "C")
-            tier_rules = budget_config.get("tier_rules", {})
-            max_kw = tier_rules.get(tier, {}).get("max_keywords", 999)
-            max_pages = tier_rules.get(tier, {}).get("max_pages", 1)
+        plan = build_plan(district_config, cat_config, budget_config)
+        kw_allowed = plan.total_candidates - plan.excluded_keyword_limit
+        print(f"      候选: {plan.total_candidates} → 排除: {plan.excluded_keyword_limit}(kw) + {plan.excluded_district_budget}(budget) → "
+              f"批准: {plan.approved_count}（第一页 {plan.first_page_count}）")
 
-            district_planned = 0
-            district_api = 0
-            district_cache = 0
-            district_skipped = 0
+        sch_cfg = budget_config.get("scheduler", {})
+        page_size = sch_cfg.get("page_size", 20)
+        retry_cfg = budget_config.get("retry_policy", {})
 
-            kw_index = 0
-            page_district_pois = []
+        snapshot_rows = []
+        district_summaries = {}
+        district_poi_counts: dict[str, int] = {}
+        second_page_approved_count = 0
+        second_page_not_needed_count = 0
+        quota_blocked_count = 0
 
-            for page in range(max_pages):
-                kw_index = 0
-                for kw, cat_id in keyword_plan:
-                    if kw_index >= max_kw:
-                        state.record_skipped(
-                            did, dcfg["name"], kw, cat_id,
-                            "超出 tier 关键词上限"
-                        )
-                        state.record_execution(
-                            district_id=did,
-                            district_name=dcfg["name"],
-                            category_id=cat_id,
-                            keyword=kw,
-                            page=page + 1,
-                            execution_status=EXEC_STATUS_SKIPPED_KEYWORD_LIMIT,
-                            cache_hit=False,
-                            result_count=0,
-                            skip_reason="超出 tier 关键词上限",
-                            is_in_approved_plan=False,
-                        )
-                        district_skipped += 1
-                        continue
-                    kw_index += 1
-                    district_planned += 1
-
-                    pois, status = fetch_poi_around_budgeted(
-                        query=kw,
-                        center_lng=dcfg["center_lng"],
-                        center_lat=dcfg["center_lat"],
-                        district_id=did,
-                        district_name=dcfg["name"],
-                        cat_id=cat_id,
-                        snapshot_date=snapshot_date,
-                        radius_m=dcfg.get("radius_m", 500),
-                        page=page,
-                        state=state,
-                    )
-
-                    if status == FETCH_STATUS_API:
-                        exec_status = EXEC_STATUS_SUCCESS if pois else EXEC_STATUS_EMPTY
-                        district_api += 1
-                    elif status == FETCH_STATUS_CACHE:
-                        exec_status = EXEC_STATUS_CACHE_HIT
-                        district_cache += 1
-                    elif status == FETCH_STATUS_SKIPPED:
-                        exec_status = EXEC_STATUS_SKIPPED_BUDGET
-                        district_skipped += 1
-                        state.record_execution(
-                            district_id=did,
-                            district_name=dcfg["name"],
-                            category_id=cat_id,
-                            keyword=kw,
-                            page=page + 1,
-                            execution_status=EXEC_STATUS_SKIPPED_BUDGET,
-                            cache_hit=False,
-                            result_count=0,
-                            skip_reason="",
-                            is_in_approved_plan=False,
-                        )
-                        continue
-                    elif status == FETCH_STATUS_API_FAILED:
-                        exec_status = EXEC_STATUS_FAILED_API
-                        district_skipped += 1
-                    else:
-                        exec_status = status
-
-                    state.record_execution(
-                        district_id=did,
-                        district_name=dcfg["name"],
-                        category_id=cat_id,
-                        keyword=kw,
-                        page=page + 1,
-                        execution_status=exec_status,
-                        cache_hit=(status == FETCH_STATUS_CACHE),
-                        result_count=len(pois),
-                        skip_reason="",
-                        is_in_approved_plan=True,
-                    )
-
-                    page_district_pois.extend(pois)
-
-            snapshot_rows.extend(page_district_pois)
-
-            if not page_district_pois and max_pages > 0:
-                needs_fallback = True
-
-            district_summaries.append({
+        for d in district_map.values():
+            district_summaries[d["district_id"]] = {
                 "run_date": today.isoformat(),
                 "snapshot_date": snapshot_date.isoformat(),
                 "weekend_date": weekend_date.isoformat(),
-                "district_id": did,
-                "district_name": dcfg["name"],
-                "planned_queries": district_planned,
-                "api_requests_used": district_api,
-                "cache_hits": district_cache,
-                "skipped_queries": district_skipped,
+                "district_id": d["district_id"],
+                "district_name": d["name"],
+                "planned_queries": 0,
+                "api_requests_used": 0,
+                "cache_hits": 0,
+                "skipped_queries": 0,
                 "fallback_used": "no",
-                "poi_count": len(page_district_pois),
+                "poi_count": 0,
                 "notes": "",
-            })
+            }
+            district_poi_counts[d["district_id"]] = 0
 
-        if needs_fallback or not snapshot_rows:
-            if not snapshot_rows:
-                print("      高德 API 未返回数据，回退到 sample 数据")
-                state.fallback_used = True
-                snapshot_rows = build_fallback_snapshot(sample_poi_path, snapshot_date)
-            for s in district_summaries:
-                if s["poi_count"] == 0:
-                    s["fallback_used"] = "yes (no real data)"
+        # ── Execute first page, breadth-first (round-robin) ──
+        for slot_idx, slot in enumerate(plan.approved):
+            if state.circuit_breaker_triggered:
+                state.record_execution(
+                    district_id=slot.district_id,
+                    district_name=slot.district_name,
+                    category_id=slot.category_id,
+                    keyword=slot.keyword,
+                    page=slot.page,
+                    execution_status=EXEC_STATUS_NOT_ATTEMPTED_QUOTA_BLOCKED,
+                    cache_hit=False,
+                    result_count=0,
+                    skip_reason=f"circuit_breaker: {state.circuit_breaker_infocode}",
+                    is_in_approved_plan=True,
+                )
+                quota_blocked_count += 1
+                continue
+
+            dcfg = district_map.get(slot.district_id, {})
+            center_lng = dcfg.get("center_lng", 0)
+            center_lat = dcfg.get("center_lat", 0)
+            radius_m = dcfg.get("radius_m", 500)
+
+            if not state.can_request(slot.district_id):
+                continue
+
+            pois, status = fetch_poi_around_budgeted(
+                query=slot.keyword,
+                center_lng=center_lng,
+                center_lat=center_lat,
+                district_id=slot.district_id,
+                district_name=slot.district_name,
+                cat_id=slot.category_id,
+                snapshot_date=snapshot_date,
+                radius_m=radius_m,
+                page=slot.page - 1,
+                state=state,
+                retry_config=retry_cfg,
+            )
+
+            if status == FETCH_STATUS_API:
+                exec_status = EXEC_STATUS_SUCCESS if pois else EXEC_STATUS_EMPTY
+            elif status == FETCH_STATUS_CACHE:
+                exec_status = EXEC_STATUS_CACHE_HIT
+            elif status == FETCH_STATUS_SKIPPED:
+                exec_status = EXEC_STATUS_SKIPPED_BUDGET
+            elif status == FETCH_STATUS_API_FAILED:
+                exec_status = EXEC_STATUS_FAILED_API
+            else:
+                exec_status = status
+
+            state.record_execution(
+                district_id=slot.district_id,
+                district_name=slot.district_name,
+                category_id=slot.category_id,
+                keyword=slot.keyword,
+                page=slot.page,
+                execution_status=exec_status,
+                cache_hit=(status == FETCH_STATUS_CACHE),
+                result_count=len(pois),
+                skip_reason="",
+                is_in_approved_plan=True,
+            )
+
+            snapshot_rows.extend(pois)
+            district_poi_counts[slot.district_id] = district_poi_counts.get(slot.district_id, 0) + len(pois)
+
+        # ── Collect second page candidates AFTER all first pages ──
+        second_page_potential = plan.second_page_candidates
+        second_page_pool: list[RequestSlot] = []
+        for s in plan.approved:
+            if not s.is_first_page:
+                continue
+            if state.circuit_breaker_triggered:
+                break
+            dcfg = district_map.get(s.district_id, {})
+            center_lng = dcfg.get("center_lng", 0)
+            center_lat = dcfg.get("center_lat", 0)
+            radius_m = dcfg.get("radius_m", 500)
+
+            # Find the first-page execution result for this slot
+            fp_execs = [r for r in state.request_log
+                        if r["district_id"] == s.district_id
+                        and r["keyword"] == s.keyword
+                        and r["page"] == s.page
+                        and r.get("is_in_approved_plan", True)]
+            fp_count = fp_execs[0]["result_count"] if fp_execs else 0
+            fp_status = fp_execs[0]["execution_status"] if fp_execs else ""
+
+            if fp_status == EXEC_STATUS_SUCCESS and fp_count > 0:
+                sp = build_second_page_slots(
+                    plan, s.district_id, s.district_name,
+                    s.category_id, s.keyword,
+                    fp_count, state.daily_max - state.api_requests_used,
+                    page_size, api_count=None,
+                )
+                second_page_pool.extend(sp)
+
+        # ── Execute second pages round-robin ──
+        district_order = [d["district_id"] for d in district_map.values()]
+        sp_by_district = defaultdict(list)
+        for sp in second_page_pool:
+            sp_by_district[sp.district_id].append(sp)
+        remaining_dids = [did for did in district_order if sp_by_district.get(did)]
+        second_page_candidate_count = len(second_page_pool)
+        second_page_approved_count = 0
+        second_page_executed_count = 0
+
+        while remaining_dids:
+            next_round = []
+            for did in remaining_dids:
+                if state.circuit_breaker_triggered:
+                    quota_blocked_count += len(sp_by_district.get(did, []))
+                    continue
+                queue = sp_by_district.get(did, [])
+                if not queue:
+                    continue
+                sp_slot = queue.pop(0)
+                if not state.can_request(did):
+                    continue
+                dcfg = district_map.get(did, {})
+                clng = dcfg.get("center_lng", 0)
+                clat = dcfg.get("center_lat", 0)
+                r_m = dcfg.get("radius_m", 500)
+
+                pois2, status2 = fetch_poi_around_budgeted(
+                    query=sp_slot.keyword,
+                    center_lng=clng, center_lat=clat,
+                    district_id=did,
+                    district_name=sp_slot.district_name,
+                    cat_id=sp_slot.category_id,
+                    snapshot_date=snapshot_date,
+                    radius_m=r_m,
+                    page=sp_slot.page - 1,
+                    state=state,
+                    retry_config=retry_cfg,
+                )
+                if status2 == FETCH_STATUS_API:
+                    es2 = EXEC_STATUS_SUCCESS if pois2 else EXEC_STATUS_EMPTY
+                elif status2 == FETCH_STATUS_CACHE:
+                    es2 = EXEC_STATUS_CACHE_HIT
+                elif status2 == FETCH_STATUS_API_FAILED:
+                    es2 = EXEC_STATUS_FAILED_API
+                else:
+                    es2 = status2
+
+                state.record_execution(
+                    district_id=did, district_name=sp_slot.district_name,
+                    category_id=sp_slot.category_id, keyword=sp_slot.keyword,
+                    page=sp_slot.page, execution_status=es2,
+                    cache_hit=(status2 == FETCH_STATUS_CACHE),
+                    result_count=len(pois2), skip_reason="",
+                    is_in_approved_plan=True,
+                )
+                snapshot_rows.extend(pois2)
+                district_poi_counts[did] = district_poi_counts.get(did, 0) + len(pois2)
+                second_page_approved_count += 1
+                second_page_executed_count += 1
+
+                if queue:
+                    next_round.append(did)
+            remaining_dids = next_round
+
+        # ── Record keyword-limit excluded in request_log for manifest ──
+        excluded_kw_count = plan.excluded_keyword_limit
+        excluded_budget_count = plan.excluded_district_budget
+
+        # ── Record excluded keyword-limit entries ──
+        for d in district_map.values():
+            did = d["district_id"]
+            tier_key = did
+            tier = budget_config.get("district_tiers", {}).get(tier_key, "C")
+            rules = budget_config.get("tier_rules", {}).get(tier, {})
+            max_kw = rules.get("max_keywords", 999)
+            total_kw = len(keyword_plan)
+            f1_candidates = min(total_kw, max_kw)
+            excluded_from_first = total_kw - f1_candidates
+            num_pages = rules.get("max_pages", 1)
+            for p in range(num_pages):
+                for kw, cat_id in keyword_plan[f1_candidates:]:
+                    state.record_execution(
+                        district_id=did,
+                        district_name=d["name"],
+                        category_id=cat_id,
+                        keyword=kw,
+                        page=p + 1,
+                        execution_status=EXEC_STATUS_SKIPPED_KEYWORD_LIMIT,
+                        cache_hit=False,
+                        result_count=0,
+                        skip_reason="超出 tier 关键词上限",
+                        is_in_approved_plan=False,
+                    )
+
+        # ── Build district summaries ──
+        for did, s in district_summaries.items():
+            approved_slots = [r for r in state.request_log
+                              if r["district_id"] == did and r.get("is_in_approved_plan", True)]
+            s["planned_queries"] = len(approved_slots)
+            s["api_requests_used"] = sum(1 for r in approved_slots
+                                         if r["execution_status"] in (
+                                             EXEC_STATUS_SUCCESS, EXEC_STATUS_EMPTY, EXEC_STATUS_FAILED_API))
+            s["cache_hits"] = sum(1 for r in approved_slots if r["cache_hit"])
+            s["poi_count"] = district_poi_counts.get(did, 0)
+
+        summary_list = list(district_summaries.values())
+
+        if not snapshot_rows:
+            print("      高德 API 未返回数据，回退到 sample 数据")
+            state.fallback_used = True
+            snapshot_rows = build_fallback_snapshot(sample_poi_path, snapshot_date)
+            for s in summary_list:
+                s["fallback_used"] = "yes (no real data)"
 
         write_collection_summary(state, summary_path, snapshot_date, weekend_date,
-                                 district_summaries)
+                                 summary_list)
         print(f"      API 请求: {state.api_requests_used}, "
               f"缓存命中: {state.cache_hits}, "
               f"跳过: {state.skipped_queries}")
@@ -363,10 +520,23 @@ def main():
 
     source_mode = compute_snapshot_source_mode(state)
     status = compute_snapshot_completeness(state, source_mode)
+    extra_manifest = {
+        "scheduler_strategy": "breadth_first",
+        "adaptive_pagination": True,
+        "page_size": budget_config.get("scheduler", {}).get("page_size", 20),
+        "max_qps": budget_config.get("rate_limit", {}).get("max_qps", 0),
+        "first_page_request_count": plan.first_page_count if use_real_api else 0,
+        "second_page_potential_count": plan.second_page_candidates if use_real_api else 0,
+        "second_page_candidate_count": second_page_candidate_count if use_real_api else 0,
+        "second_page_approved_count": second_page_approved_count if use_real_api else 0,
+        "second_page_executed_count": second_page_executed_count if use_real_api else 0,
+        "quota_blocked_request_count": quota_blocked_count if use_real_api else 0,
+    }
     manifest = write_manifest_json(
         state, snapshot_dir, snapshot_date, source_mode, status,
         config_fingerprint, district_config, cat_config, budget_config,
         len(snapshot_rows), keyword_plan,
+        extra_manifest=extra_manifest,
     )
     print(f"      status={status}, source={source_mode}, fingerprint={config_fingerprint}")
     if status == "partial":
@@ -374,11 +544,12 @@ def main():
     elif status == "fallback":
         print(f"      ⚠ Snapshot 使用 sample 数据，不能与真实 API Snapshot 比较")
 
+    archive_summary_list = summary_list if use_real_api else district_summaries
     archive_summary_path = os.path.join(
         snapshot_dir, f"{snapshot_date.isoformat()}_collection_summary.csv"
     )
     write_collection_summary(state, archive_summary_path, snapshot_date, weekend_date,
-                             district_summaries)
+                             archive_summary_list)
     print(f"      归档 summary 已写入 {archive_summary_path}")
 
     print("[3/6] 检测历史快照...")

@@ -6,6 +6,7 @@ from datetime import date
 from typing import Optional
 
 from dotenv import load_dotenv
+from src.collection_scheduler import QPSTimer
 
 load_dotenv()
 
@@ -54,6 +55,26 @@ def _amap_get(url: str, params: dict) -> dict:
 
 _quota_warning_shown = False
 
+# ── Error code classification ──
+INFCODE_HARD_STOP = {"10003", "10044", "40000", "40002"}
+INFCODE_RETRYABLE = {"10004", "10015", "10016", "10019", "10020", "10021"}
+INFCODE_NO_RETRY = {"10001", "10002", "10005", "10007", "10009", "10012", "10041",
+                    "20000", "20001", "20002"}
+
+
+def classify_amap_error(info: str, infocode: str) -> tuple[str, str]:
+    if infocode in INFCODE_HARD_STOP:
+        return "hard_stop", infocode
+    if infocode in INFCODE_RETRYABLE:
+        return "retryable", infocode
+    if "INVALID_USER_SIGNATURE" in info and not infocode:
+        infocode = "10007"
+    if infocode in INFCODE_NO_RETRY:
+        return "no_retry", infocode
+    if info:
+        return "unknown", infocode
+    return "network_error", ""
+
 
 def search_poi_around(
     query: str,
@@ -62,11 +83,11 @@ def search_poi_around(
     radius_m: int = 500,
     offset: int = 20,
     page: int = 1,
-) -> tuple[list[dict], str]:
+) -> tuple[list[dict], str, str]:
     global _quota_warning_shown
     api_key = get_api_key()
     if not api_key:
-        return [], "no_api_key"
+        return [], "no_api_key", ""
 
     url = "https://restapi.amap.com/v3/place/around"
     params = {
@@ -81,21 +102,18 @@ def search_poi_around(
     try:
         data = _amap_get(url, params)
         if data.get("status") == "1":
-            return data.get("pois", []), ""
+            count = data.get("count", "")
+            return data.get("pois", []), "", ""
         info = data.get("info", "")
-        infocode = data.get("infocode", "")
-        if "INVALID_USER_SIGNATURE" in info or infocode == "10007":
-            msg = "高德 API 签名验证失败"
-            print(f"      ⚠ {msg}")
-            return [], msg
+        infocode = str(data.get("infocode", ""))
+        if "INVALID_USER_SIGNATURE" in info and not infocode:
+            infocode = "10007"
         if infocode == "10021" and not _quota_warning_shown:
             _quota_warning_shown = True
-            msg = "高德 API 日调用配额已用尽"
-            print(f"      ⚠ {msg}")
-            return [], msg
-        return [], f"api_error: status={data.get('status')} info={info} infocode={infocode}"
+            print(f"      ⚠ 高德返回 infocode=10021 (日调用量超限)")
+        return [], infocode, info
     except Exception as e:
-        return [], f"network_error: {e}"
+        return [], "network_error", str(e)
 
 
 # ── POI 工具 ─────────────────────────────────────────────
@@ -153,8 +171,10 @@ def _set_cache_dir(cache_dir: str):
 
 
 def _cache_key(source: str, dt: date, district_id: str, keyword: str,
-               radius_m: int, page: int) -> str:
-    raw = f"{source}|{dt.isoformat()}|{district_id}|{keyword}|{radius_m}|{page}"
+               radius_m: int, page: int, center_lng: float = 0.0,
+               center_lat: float = 0.0, page_size: int = 20) -> str:
+    raw = (f"ep=v3|mode=around|{source}|{dt.isoformat()}|{district_id}|"
+           f"{keyword}|{radius_m}|{page}|lng={center_lng}|lat={center_lat}|ps={page_size}")
     return hashlib.md5(raw.encode("utf-8")).hexdigest()
 
 
@@ -169,8 +189,10 @@ def _cache_path(cache_key: str) -> str:
 
 
 def read_cache(source: str, dt: date, district_id: str, keyword: str,
-               radius_m: int, page: int) -> Optional[list[dict]]:
-    path = _cache_path(_cache_key(source, dt, district_id, keyword, radius_m, page))
+               radius_m: int, page: int, center_lng: float = 0.0,
+               center_lat: float = 0.0, page_size: int = 20) -> Optional[list[dict]]:
+    path = _cache_path(_cache_key(source, dt, district_id, keyword, radius_m, page,
+                                  center_lng, center_lat, page_size))
     if not os.path.isfile(path):
         return None
     try:
@@ -181,8 +203,11 @@ def read_cache(source: str, dt: date, district_id: str, keyword: str,
 
 
 def write_cache(source: str, dt: date, district_id: str, keyword: str,
-                radius_m: int, page: int, data: list[dict]):
-    path = _cache_path(_cache_key(source, dt, district_id, keyword, radius_m, page))
+                radius_m: int, page: int, data: list[dict],
+                center_lng: float = 0.0, center_lat: float = 0.0,
+                page_size: int = 20):
+    path = _cache_path(_cache_key(source, dt, district_id, keyword, radius_m, page,
+                                  center_lng, center_lat, page_size))
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
@@ -208,6 +233,9 @@ class CollectionState:
         self.skipped_tasks: list[dict] = []
         self.district_usage: dict[str, int] = {}
         self.request_log: list[dict] = []
+        self.circuit_breaker_triggered = False
+        self.circuit_breaker_infocode = ""
+        self.qps_timer: QPSTimer | None = None
 
     def can_request(self, district_id: str) -> bool:
         if not self.api_key_present:
@@ -280,6 +308,15 @@ EXEC_STATUS_FAILED_NETWORK = "failed_network"
 EXEC_STATUS_FALLBACK_SAMPLE = "fallback_sample"
 
 
+def _compute_retry_delay(attempt: int, initial_backoff: float = 1.0,
+                         max_backoff: float = 4.0, jitter: bool = True) -> float:
+    import random
+    delay = min(initial_backoff * (2 ** (attempt - 1)), max_backoff)
+    if jitter:
+        delay *= 0.5 + random.random() * 0.5
+    return delay
+
+
 def fetch_poi_around_budgeted(
     query: str,
     center_lng: float,
@@ -291,7 +328,11 @@ def fetch_poi_around_budgeted(
     radius_m: int,
     page: int,
     state: CollectionState,
+    retry_config: dict | None = None,
 ) -> tuple[list[dict], str]:
+    if getattr(state, "circuit_breaker_triggered", False):
+        return [], FETCH_STATUS_SKIPPED
+
     if not state.can_request(district_id):
         state.record_skipped(
             district_id, district_name, query, cat_id,
@@ -301,37 +342,74 @@ def fetch_poi_around_budgeted(
 
     if not state.force:
         cached = read_cache(
-            "amap", snapshot_date, district_id, query, radius_m, page
+            "amap", snapshot_date, district_id, query, radius_m, page,
+            center_lng=center_lng, center_lat=center_lat, page_size=20,
         )
         if cached is not None:
             state.record_cache_hit()
             return cached, FETCH_STATUS_CACHE
 
-    pois, err = search_poi_around(query, center_lng, center_lat, radius_m, page=page)
-    state.record_api_call(district_id)
+    if state.qps_timer is not None:
+        state.qps_timer.wait_if_needed()
 
-    if err:
-        state.record_pois(0)
-        return [], FETCH_STATUS_API_FAILED
+    max_retries = (retry_config or {}).get("max_retries", 1)
+    initial_backoff = (retry_config or {}).get("initial_backoff_seconds", 1.0)
+    max_backoff = (retry_config or {}).get("max_backoff_seconds", 4.0)
+    jitter = (retry_config or {}).get("jitter", True)
 
-    state.record_pois(len(pois))
+    last_infocode = ""
+    last_info = ""
+    attempt = 0
 
-    normalized = []
-    seen = set()
-    for poi in pois:
-        key = (poi.get("id", ""), poi.get("name", ""), poi.get("address", ""))
-        if key in seen:
-            continue
-        seen.add(key)
-        normalized.append(
-            normalize_amap_poi(poi, district_id, district_name, cat_id,
-                               query, snapshot_date)
+    while attempt <= max_retries:
+        if attempt > 0:
+            delay = _compute_retry_delay(attempt, initial_backoff, max_backoff, jitter)
+            import time
+            time.sleep(delay)
+
+        pois, infocode, info = search_poi_around(
+            query, center_lng, center_lat, radius_m, page=page,
         )
+        state.record_api_call(district_id)
+        last_infocode = infocode
+        last_info = info
 
-    write_cache("amap", snapshot_date, district_id, query, radius_m, page,
-                normalized)
+        if not infocode:
+            state.record_pois(len(pois))
+            normalized = []
+            seen = set()
+            for poi in pois:
+                key = (poi.get("id", ""), poi.get("name", ""), poi.get("address", ""))
+                if key in seen:
+                    continue
+                seen.add(key)
+                normalized.append(
+                    normalize_amap_poi(poi, district_id, district_name, cat_id,
+                                       query, snapshot_date)
+                )
+            write_cache("amap", snapshot_date, district_id, query, radius_m, page,
+                        normalized, center_lng=center_lng, center_lat=center_lat, page_size=20)
+            return normalized, FETCH_STATUS_API
 
-    return normalized, FETCH_STATUS_API
+        err_category, _ = classify_amap_error(last_info, last_infocode)
+        if err_category == "hard_stop":
+            state.circuit_breaker_triggered = True
+            state.circuit_breaker_infocode = last_infocode
+            state.record_pois(0)
+            return [], FETCH_STATUS_API_FAILED
+
+        if err_category == "no_retry":
+            state.record_pois(0)
+            return [], FETCH_STATUS_API_FAILED
+
+        if err_category == "retryable" and attempt >= max_retries:
+            state.record_pois(0)
+            return [], FETCH_STATUS_API_FAILED
+
+        attempt += 1
+
+    state.record_pois(0)
+    return [], FETCH_STATUS_API_FAILED
 
 
 SNAPSHOT_FIELDS = [
@@ -400,6 +478,10 @@ COLLECTION_SUMMARY_FIELDS = [
 def compute_config_fingerprint(district_config: dict, cat_config: dict,
                                budget_config: dict) -> str:
     import yaml
+    max_run = budget_config.get("max_requests_per_run")
+    if max_run is None:
+        max_run = budget_config.get("daily_max_requests", 30)
+    sch = budget_config.get("scheduler", {})
     fingerprint_data = {
         "districts": [
             {
@@ -423,8 +505,14 @@ def compute_config_fingerprint(district_config: dict, cat_config: dict,
             "district_tiers": budget_config.get("district_tiers", {}),
             "tier_rules": budget_config.get("tier_rules", {}),
         },
+        "scheduler": {
+            "strategy": sch.get("strategy", "breadth_first"),
+            "adaptive_pagination": sch.get("adaptive_pagination", True),
+            "page_size": sch.get("page_size", 20),
+        },
         "query_mode": "around_search",
         "offset": 20,
+        "max_requests_per_run": max_run,
     }
     serialized = yaml.dump(fingerprint_data, sort_keys=True)
     return hashlib.md5(serialized.encode("utf-8")).hexdigest()[:16]
@@ -435,7 +523,8 @@ def write_manifest_json(state: CollectionState, snapshot_dir: str,
                         status: str, config_fingerprint: str,
                         district_config: dict, cat_config: dict,
                         budget_config: dict, deduped_count: int,
-                        keyword_plan: list):
+                        keyword_plan: list,
+                        extra_manifest: dict | None = None):
     import json
     total_candidates = len(state.request_log)
     approved = [r for r in state.request_log if r.get("is_in_approved_plan", True)]
@@ -522,7 +611,12 @@ def write_manifest_json(state: CollectionState, snapshot_dir: str,
         "deduped_poi_count": deduped_count,
         "coverage_by_district": by_district,
         "coverage_by_keyword": by_keyword,
+        "circuit_breaker_triggered": state.circuit_breaker_triggered,
+        "circuit_breaker_infocode": state.circuit_breaker_infocode,
     }
+
+    if extra_manifest:
+        manifest.update(extra_manifest)
 
     path = os.path.join(
         snapshot_dir, f"{snapshot_date.isoformat()}_manifest.json"

@@ -10,10 +10,10 @@ categories:
     weekend_weight: 1.0
 
   - category_id: food_light
-    display_name: 轻食
+    display_name: 烘焙面包
     query_keywords:
       - 烘焙
-      - 轻食
+      - 面包
     semantic_keywords:
       - 轻食
       - brunch
@@ -26,9 +26,11 @@ categories:
     query_keywords:
       - 画廊
       - 展览
+      - 美术馆
     semantic_keywords:
       - 展览
       - 画廊
+      - 美术馆
       - 艺术空间
     weekend_weight: 1.2
 
@@ -37,6 +39,7 @@ categories:
     query_keywords:
       - 书店
       - 工作室
+      - 买手店
     semantic_keywords:
       - 书店
       - 买手店
@@ -47,10 +50,10 @@ categories:
   - category_id: compound_space
     display_name: 复合空间
     query_keywords:
-      - 创意园
-      - 复合空间
-    semantic_keywords:
-      - 创意园
-      - 复合空间
       - 联合办公
+      - 共享空间
+    semantic_keywords:
+      - 联合办公
+      - 共享空间
+      - 创新空间
     weekend_weight: 1.0

@@ -78,7 +78,7 @@ class TestPagePassing(unittest.TestCase):
         called_with = {}
         def mock_search(*a, **kw):
             called_with.update(kw)
-            return [], ""
+            return [], "", ""
         import src.amap_client
         src.amap_client.search_poi_around = mock_search
         try:

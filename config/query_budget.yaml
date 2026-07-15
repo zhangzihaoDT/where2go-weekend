@@ -1,8 +1,28 @@
+# 单次运行最大 API 请求数（deprecated: daily_max_requests，优先读取 max_requests_per_run）
+max_requests_per_run: 30
 daily_max_requests: 30
 per_district_max_requests: 10
 max_pages_default: 1
 max_pages_focus_district: 2
 enable_force_refresh: false
+
+# 调度策略
+scheduler:
+  strategy: breadth_first
+  adaptive_pagination: true
+  max_pages: 2
+  page_size: 20
+
+# 主动 QPS 控制（仅限真实网络请求，cache hit 不等待）
+rate_limit:
+  max_qps: 1.0
+
+# 重试策略
+retry_policy:
+  max_retries: 2
+  initial_backoff_seconds: 1.0
+  max_backoff_seconds: 4.0
+  jitter: true
 
 district_tiers:
   zhihui_fang: A
