@@ -61,11 +61,12 @@ def search_poi_around(
     center_lat: float,
     radius_m: int = 500,
     offset: int = 20,
-) -> list[dict]:
+    page: int = 1,
+) -> tuple[list[dict], str]:
     global _quota_warning_shown
     api_key = get_api_key()
     if not api_key:
-        return []
+        return [], "no_api_key"
 
     url = "https://restapi.amap.com/v3/place/around"
     params = {
@@ -74,22 +75,27 @@ def search_poi_around(
         "location": f"{center_lng},{center_lat}",
         "radius": radius_m,
         "offset": offset,
+        "page": page,
         "extensions": "base",
     }
     try:
         data = _amap_get(url, params)
         if data.get("status") == "1":
-            return data.get("pois", [])
+            return data.get("pois", []), ""
         info = data.get("info", "")
         infocode = data.get("infocode", "")
         if "INVALID_USER_SIGNATURE" in info or infocode == "10007":
-            print(f"      ⚠ 高德 API 签名验证失败，请在 .env 中设置 AMAP_API_SECRET")
-        elif infocode == "10021" and not _quota_warning_shown:
+            msg = "高德 API 签名验证失败"
+            print(f"      ⚠ {msg}")
+            return [], msg
+        if infocode == "10021" and not _quota_warning_shown:
             _quota_warning_shown = True
-            print(f"      ⚠ 高德 API 日调用配额已用尽，部分查询返回空")
-        return []
-    except Exception:
-        return []
+            msg = "高德 API 日调用配额已用尽"
+            print(f"      ⚠ {msg}")
+            return [], msg
+        return [], f"api_error: status={data.get('status')} info={info} infocode={infocode}"
+    except Exception as e:
+        return [], f"network_error: {e}"
 
 
 # ── POI 工具 ─────────────────────────────────────────────
@@ -201,6 +207,7 @@ class CollectionState:
 
         self.skipped_tasks: list[dict] = []
         self.district_usage: dict[str, int] = {}
+        self.request_log: list[dict] = []
 
     def can_request(self, district_id: str) -> bool:
         if not self.api_key_present:
@@ -236,6 +243,24 @@ class CollectionState:
     def planned_queries(self, district_count: int, keywords_per_district: int) -> int:
         return district_count * keywords_per_district
 
+    def record_execution(self, *, district_id: str, district_name: str,
+                         category_id: str, keyword: str, page: int,
+                         execution_status: str, cache_hit: bool = False,
+                         result_count: int = 0, skip_reason: str = "",
+                         is_in_approved_plan: bool = True):
+        self.request_log.append({
+            "district_id": district_id,
+            "district_name": district_name,
+            "category_id": category_id,
+            "keyword": keyword,
+            "page": page,
+            "execution_status": execution_status,
+            "cache_hit": cache_hit,
+            "result_count": result_count,
+            "skip_reason": skip_reason,
+            "is_in_approved_plan": is_in_approved_plan,
+        })
+
 
 # ── 按预算/缓存的 POI 采集 ──────────────────────────────
 
@@ -243,6 +268,16 @@ class CollectionState:
 FETCH_STATUS_API = "fetched_from_api"
 FETCH_STATUS_CACHE = "loaded_from_cache"
 FETCH_STATUS_SKIPPED = "skipped_by_budget"
+FETCH_STATUS_API_FAILED = "api_failed"
+
+EXEC_STATUS_SUCCESS = "success"
+EXEC_STATUS_EMPTY = "empty"
+EXEC_STATUS_CACHE_HIT = "cache_hit"
+EXEC_STATUS_SKIPPED_BUDGET = "skipped_budget"
+EXEC_STATUS_SKIPPED_KEYWORD_LIMIT = "skipped_keyword_limit"
+EXEC_STATUS_FAILED_API = "failed_api"
+EXEC_STATUS_FAILED_NETWORK = "failed_network"
+EXEC_STATUS_FALLBACK_SAMPLE = "fallback_sample"
 
 
 def fetch_poi_around_budgeted(
@@ -272,8 +307,13 @@ def fetch_poi_around_budgeted(
             state.record_cache_hit()
             return cached, FETCH_STATUS_CACHE
 
-    pois = search_poi_around(query, center_lng, center_lat, radius_m)
+    pois, err = search_poi_around(query, center_lng, center_lat, radius_m, page=page)
     state.record_api_call(district_id)
+
+    if err:
+        state.record_pois(0)
+        return [], FETCH_STATUS_API_FAILED
+
     state.record_pois(len(pois))
 
     normalized = []
@@ -355,6 +395,216 @@ COLLECTION_SUMMARY_FIELDS = [
     "planned_queries", "api_requests_used", "cache_hits",
     "skipped_queries", "fallback_used", "poi_count", "notes",
 ]
+
+
+def compute_config_fingerprint(district_config: dict, cat_config: dict,
+                               budget_config: dict) -> str:
+    import yaml
+    fingerprint_data = {
+        "districts": [
+            {
+                "id": d["district_id"],
+                "lng": d.get("center_lng"),
+                "lat": d.get("center_lat"),
+                "r": d.get("radius_m"),
+            }
+            for d in district_config["districts"]
+        ],
+        "categories": [
+            {
+                "id": c["category_id"],
+                "query_keywords": c.get("query_keywords", []),
+            }
+            for c in cat_config["categories"]
+        ],
+        "budget": {
+            "daily_max": budget_config.get("daily_max_requests"),
+            "per_district_max": budget_config.get("per_district_max_requests"),
+            "district_tiers": budget_config.get("district_tiers", {}),
+            "tier_rules": budget_config.get("tier_rules", {}),
+        },
+        "query_mode": "around_search",
+        "offset": 20,
+    }
+    serialized = yaml.dump(fingerprint_data, sort_keys=True)
+    return hashlib.md5(serialized.encode("utf-8")).hexdigest()[:16]
+
+
+def write_manifest_json(state: CollectionState, snapshot_dir: str,
+                        snapshot_date: date, source_mode: str,
+                        status: str, config_fingerprint: str,
+                        district_config: dict, cat_config: dict,
+                        budget_config: dict, deduped_count: int,
+                        keyword_plan: list):
+    import json
+    total_candidates = len(state.request_log)
+    approved = [r for r in state.request_log if r.get("is_in_approved_plan", True)]
+    excluded = [r for r in state.request_log if not r.get("is_in_approved_plan", True)]
+    approved_count = len(approved)
+    excluded_count = len(excluded)
+    executed = sum(1 for r in approved if r["execution_status"]
+                   not in ("skipped_budget", "skipped_keyword_limit"))
+    succeeded = sum(1 for r in approved if r["execution_status"]
+                    in ("success", "empty", "cache_hit"))
+    empties = sum(1 for r in approved if r["execution_status"] == "empty")
+    failed = sum(1 for r in approved if r["execution_status"]
+                 in ("failed_api", "failed_network"))
+    cache_hits = sum(1 for r in approved if r["cache_hit"])
+
+    excluded_by_reason = {
+        "keyword_limit": sum(1 for r in excluded if r["execution_status"]
+                             == "skipped_keyword_limit"),
+        "district_budget": sum(1 for r in excluded if r["execution_status"]
+                                == "skipped_budget"),
+        "daily_budget": 0,
+    }
+
+    by_district = {}
+    for r in state.request_log:
+        if not r.get("is_in_approved_plan", True):
+            continue
+        did = r["district_id"]
+        if did not in by_district:
+            by_district[did] = {"approved": 0, "success": 0, "empty": 0,
+                                "failed": 0, "poi_count": 0}
+        by_district[did]["approved"] += 1
+        if r["execution_status"] in ("success", "empty", "cache_hit"):
+            by_district[did]["success"] += 1
+        if r["execution_status"] == "empty":
+            by_district[did]["empty"] += 1
+        if r["execution_status"] in ("failed_api", "failed_network"):
+            by_district[did]["failed"] += 1
+        by_district[did]["poi_count"] += r["result_count"]
+
+    by_keyword = {}
+    for r in state.request_log:
+        if not r.get("is_in_approved_plan", True):
+            continue
+        kw = r["keyword"]
+        if kw not in by_keyword:
+            by_keyword[kw] = {"approved": 0, "success": 0, "empty": 0,
+                              "failed": 0, "poi_count": 0}
+        by_keyword[kw]["approved"] += 1
+        if r["execution_status"] in ("success", "empty", "cache_hit"):
+            by_keyword[kw]["success"] += 1
+        if r["execution_status"] == "empty":
+            by_keyword[kw]["empty"] += 1
+        if r["execution_status"] in ("failed_api", "failed_network"):
+            by_keyword[kw]["failed"] += 1
+        by_keyword[kw]["poi_count"] += r["result_count"]
+
+    manifest = {
+        "schema_version": 1,
+        "snapshot_date": snapshot_date.isoformat(),
+        "created_at": date.today().isoformat(),
+        "source_mode": source_mode,
+        "status": status,
+        "config_fingerprint": config_fingerprint,
+        "districts": [d["district_id"] for d in district_config["districts"]],
+        "categories": [c["category_id"] for c in cat_config["categories"]],
+        "keyword_plan": keyword_plan,
+        "query_budget": {
+            "daily_max_requests": budget_config.get("daily_max_requests"),
+            "per_district_max_requests": budget_config.get("per_district_max_requests"),
+            "district_tiers": budget_config.get("district_tiers", {}),
+            "tier_rules": budget_config.get("tier_rules", {}),
+        },
+        "candidate_request_count": total_candidates,
+        "excluded_request_count": excluded_count,
+        "approved_request_count": approved_count,
+        "excluded_by_reason": excluded_by_reason,
+        "executed_request_count": executed,
+        "successful_request_count": succeeded,
+        "empty_request_count": empties,
+        "failed_request_count": failed,
+        "cache_hit_count": cache_hits,
+        "raw_poi_count": state.poi_count,
+        "deduped_poi_count": deduped_count,
+        "coverage_by_district": by_district,
+        "coverage_by_keyword": by_keyword,
+    }
+
+    path = os.path.join(
+        snapshot_dir, f"{snapshot_date.isoformat()}_manifest.json"
+    )
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(manifest, f, ensure_ascii=False, indent=2)
+    return manifest
+
+
+def compute_snapshot_source_mode(state: CollectionState) -> str:
+    if not state.request_log:
+        return "sample" if state.fallback_used else "unknown"
+    has_api = any(
+        r["execution_status"] in ("success", "empty", "cache_hit",
+                                  "failed_api", "failed_network")
+        for r in state.request_log
+    )
+    has_sample = state.fallback_used
+    if has_api and has_sample:
+        return "mixed"
+    if has_api:
+        return "amap"
+    return "sample"
+
+
+def compute_snapshot_completeness(state: CollectionState,
+                                  source_mode: str) -> str:
+    if source_mode == "sample":
+        return "fallback"
+    approved = [r for r in state.request_log if r.get("is_in_approved_plan", True)]
+    if not approved:
+        return "failed"
+    has_failure = any(
+        r["execution_status"] in ("failed_api", "failed_network")
+        for r in approved
+    )
+    all_accounted = all(
+        r["execution_status"] in ("success", "empty", "cache_hit")
+        for r in approved
+    )
+    if all_accounted:
+        return "complete"
+    if has_failure:
+        return "partial"
+    return "partial"
+
+
+def read_manifest(path: str) -> dict | None:
+    import json
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def compare_is_allowed(previous_snapshot_exists: bool,
+                       prev_manifest: dict | None,
+                       curr_manifest: dict | None) -> tuple[bool, str]:
+    if not previous_snapshot_exists:
+        return True, "no_previous_snapshot"
+    if prev_manifest is None:
+        return False, "previous_snapshot_has_no_manifest"
+    if curr_manifest is None:
+        return False, "current_snapshot_has_no_manifest"
+    if prev_manifest.get("config_fingerprint") != curr_manifest.get("config_fingerprint"):
+        return False, "config_fingerprint_mismatch"
+    prev_source = prev_manifest.get("source_mode", "")
+    curr_source = curr_manifest.get("source_mode", "")
+    if prev_source == "sample" and curr_source == "amap":
+        return False, "previous_is_sample_current_is_amap"
+    if prev_source == "amap" and curr_source == "sample":
+        return False, "previous_is_amap_current_is_sample"
+    if prev_source == "mixed" or curr_source == "mixed":
+        return False, "mixed_source_not_allowed_for_compare"
+    if prev_manifest.get("status") not in ("complete",):
+        return False, f"previous_snapshot_status_{prev_manifest.get('status')}"
+    if curr_manifest.get("status") not in ("complete",):
+        return False, f"current_snapshot_status_{curr_manifest.get('status')}"
+    return True, "ok"
 
 
 def write_skipped_csv(tasks: list[dict], output_path: str):

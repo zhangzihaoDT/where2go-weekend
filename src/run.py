@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 import argparse
 import os
+import re
 import sys
+import unicodedata
 from datetime import date
 
 import yaml
@@ -18,8 +20,20 @@ from src.amap_client import (
     FETCH_STATUS_API,
     FETCH_STATUS_CACHE,
     FETCH_STATUS_SKIPPED,
+    FETCH_STATUS_API_FAILED,
+    EXEC_STATUS_SUCCESS,
+    EXEC_STATUS_EMPTY,
+    EXEC_STATUS_CACHE_HIT,
+    EXEC_STATUS_SKIPPED_BUDGET,
+    EXEC_STATUS_SKIPPED_KEYWORD_LIMIT,
     write_skipped_csv,
     write_collection_summary,
+    compute_config_fingerprint,
+    write_manifest_json,
+    compute_snapshot_source_mode,
+    compute_snapshot_completeness,
+    read_manifest,
+    compare_is_allowed,
 )
 from src.change_detector import (
     load_snapshot,
@@ -41,6 +55,32 @@ from src.map_writer import generate_map
 
 COORD_MODES = ("approx_wgs84", "raw_gcj02")
 MAP_PROVIDERS = ("amap_js", "leaflet_osm")
+
+
+def deduplicate_snapshot_rows(rows: list[dict]) -> list[dict]:
+    seen = set()
+    result = []
+    removed = 0
+    for row in rows:
+        did = row.get("district_id", "")
+        cat = row.get("category_id", "")
+        pid = row.get("poi_id", "")
+        if pid:
+            key = (did, cat, pid)
+        else:
+            name = unicodedata.normalize("NFKC", (row.get("name", "") or "").strip().lower())
+            name = re.sub(r"\s+", "", name)
+            addr = unicodedata.normalize("NFKC", (row.get("address", "") or "").strip().lower())
+            addr = re.sub(r"\s+", "", addr)
+            key = (did, cat, name, addr)
+        if key in seen:
+            removed += 1
+            continue
+        seen.add(key)
+        result.append(row)
+    if removed > 0:
+        print(f"      去重: 输入 {len(rows)} 条, 输出 {len(result)} 条, 移除 {removed} 条")
+    return result
 
 
 def main():
@@ -98,7 +138,7 @@ def main():
     categories_path = os.path.join(PROJECT_ROOT, "config", "categories.yaml")
     budget_path = os.path.join(PROJECT_ROOT, "config", "query_budget.yaml")
     sample_poi_path = os.path.join(PROJECT_ROOT, "data", "sample_poi.csv")
-    snapshot_dir = os.path.join(PROJECT_ROOT, "data", "poi_snapshots")
+    snapshot_dir = os.path.join(PROJECT_ROOT, "data", "weekend_district_poi")
     scores_path = os.path.join(PROJECT_ROOT, "data", "district_scores.csv")
     change_scores_path = os.path.join(PROJECT_ROOT, "data", "district_change_scores.csv")
     change_events_path = os.path.join(PROJECT_ROOT, "data", "poi_change_events.csv")
@@ -144,6 +184,10 @@ def main():
         for kw in cat.get("query_keywords", []):
             keyword_plan.append((kw, cat_id))
 
+    config_fingerprint = compute_config_fingerprint(
+        district_config, cat_config, budget_config
+    )
+
     snapshot_rows = []
     needs_fallback = False
 
@@ -174,6 +218,18 @@ def main():
                             did, dcfg["name"], kw, cat_id,
                             "超出 tier 关键词上限"
                         )
+                        state.record_execution(
+                            district_id=did,
+                            district_name=dcfg["name"],
+                            category_id=cat_id,
+                            keyword=kw,
+                            page=page + 1,
+                            execution_status=EXEC_STATUS_SKIPPED_KEYWORD_LIMIT,
+                            cache_hit=False,
+                            result_count=0,
+                            skip_reason="超出 tier 关键词上限",
+                            is_in_approved_plan=False,
+                        )
                         district_skipped += 1
                         continue
                     kw_index += 1
@@ -193,11 +249,45 @@ def main():
                     )
 
                     if status == FETCH_STATUS_API:
+                        exec_status = EXEC_STATUS_SUCCESS if pois else EXEC_STATUS_EMPTY
                         district_api += 1
                     elif status == FETCH_STATUS_CACHE:
+                        exec_status = EXEC_STATUS_CACHE_HIT
                         district_cache += 1
                     elif status == FETCH_STATUS_SKIPPED:
+                        exec_status = EXEC_STATUS_SKIPPED_BUDGET
                         district_skipped += 1
+                        state.record_execution(
+                            district_id=did,
+                            district_name=dcfg["name"],
+                            category_id=cat_id,
+                            keyword=kw,
+                            page=page + 1,
+                            execution_status=EXEC_STATUS_SKIPPED_BUDGET,
+                            cache_hit=False,
+                            result_count=0,
+                            skip_reason="",
+                            is_in_approved_plan=False,
+                        )
+                        continue
+                    elif status == FETCH_STATUS_API_FAILED:
+                        exec_status = EXEC_STATUS_FAILED_API
+                        district_skipped += 1
+                    else:
+                        exec_status = status
+
+                    state.record_execution(
+                        district_id=did,
+                        district_name=dcfg["name"],
+                        category_id=cat_id,
+                        keyword=kw,
+                        page=page + 1,
+                        execution_status=exec_status,
+                        cache_hit=(status == FETCH_STATUS_CACHE),
+                        result_count=len(pois),
+                        skip_reason="",
+                        is_in_approved_plan=True,
+                    )
 
                     page_district_pois.extend(pois)
 
@@ -264,11 +354,32 @@ def main():
         write_skipped_csv(state.skipped_tasks, skipped_path)
         print(f"      ⚠ 部分查询被跳过，详情: {skipped_path}")
 
+    snapshot_rows = deduplicate_snapshot_rows(snapshot_rows)
     snapshot_path = os.path.join(
         snapshot_dir, f"{snapshot_date.isoformat()}_poi_snapshot.csv"
     )
     write_snapshot_csv(snapshot_rows, snapshot_path)
     print(f"      快照已写入 {snapshot_path}（{len(snapshot_rows)} 条）")
+
+    source_mode = compute_snapshot_source_mode(state)
+    status = compute_snapshot_completeness(state, source_mode)
+    manifest = write_manifest_json(
+        state, snapshot_dir, snapshot_date, source_mode, status,
+        config_fingerprint, district_config, cat_config, budget_config,
+        len(snapshot_rows), keyword_plan,
+    )
+    print(f"      status={status}, source={source_mode}, fingerprint={config_fingerprint}")
+    if status == "partial":
+        print(f"      ⚠ Snapshot 采集不完整: {manifest.get('failed_request_count', 0)} 个请求失败")
+    elif status == "fallback":
+        print(f"      ⚠ Snapshot 使用 sample 数据，不能与真实 API Snapshot 比较")
+
+    archive_summary_path = os.path.join(
+        snapshot_dir, f"{snapshot_date.isoformat()}_collection_summary.csv"
+    )
+    write_collection_summary(state, archive_summary_path, snapshot_date, weekend_date,
+                             district_summaries)
+    print(f"      归档 summary 已写入 {archive_summary_path}")
 
     print("[3/6] 检测历史快照...")
     prev_path, prev_date = find_previous_snapshot(snapshot_dir, snapshot_date)
@@ -276,6 +387,7 @@ def main():
         print(f"      发现历史快照: {prev_date}")
         previous_rows = load_snapshot(prev_path)
         print(f"      历史快照共 {len(previous_rows)} 条 POI")
+        previous_rows = deduplicate_snapshot_rows(previous_rows)
         has_history = True
     else:
         print("      无历史快照，当前为第一期基准快照")
@@ -283,25 +395,58 @@ def main():
         has_history = False
 
     print("[4/6] 识别变化事件...")
+    compare_ok = True
+    compare_reason = ""
     if has_history:
+        prev_manifest_path = os.path.join(
+            snapshot_dir, f"{prev_date.isoformat()}_manifest.json"
+        )
+        prev_manifest = read_manifest(prev_manifest_path)
+        compare_ok, compare_reason = compare_is_allowed(
+            has_history, prev_manifest, manifest
+        )
+        if not compare_ok:
+            print(f"      ⚠ 无法进行跨期 Compare: {compare_reason}")
+
+    if has_history and compare_ok:
         change_events = detect_changes(
             snapshot_rows, previous_rows, snapshot_date, prev_date
         )
+        print(f"      已识别 {len(change_events)} 个变化事件")
+    elif has_history and not compare_ok:
+        change_events = [{
+            "snapshot_date": snapshot_date.isoformat(),
+            "previous_snapshot_date": prev_date.isoformat(),
+            "district_id": "",
+            "district_name": "",
+            "category_id": "",
+            "event_type": "comparison_blocked",
+            "poi_id": "",
+            "name": "",
+            "address": "",
+            "signal_strength": 0,
+            "why_interesting": f"跨期比较被阻止: {compare_reason}",
+        }]
+        print(f"      ⚠ 跨期比较被阻止: {compare_reason}")
     else:
         change_events = generate_baseline_events(snapshot_rows, snapshot_date)
+        print(f"      已生成 {len(change_events)} 条第一期基准事件")
     write_change_events_csv(change_events, change_events_path)
-    print(f"      已识别 {len(change_events)} 个变化事件")
     print(f"      已写入 {change_events_path}")
 
     print("[5/6] 计算街区变化评分...")
-    change_scores = compute_change_scores(
-        current_rows=snapshot_rows,
-        previous_rows=previous_rows,
-        change_events=change_events,
-        district_config=district_map,
-        score_date=snapshot_date,
-        target_weekend_date=weekend_date,
-    )
+    if has_history and not compare_ok:
+        change_scores = []
+        print(f"      ⚠ 跳过评分计算（因 compare 被阻止）")
+    else:
+        change_scores = compute_change_scores(
+            current_rows=snapshot_rows,
+            previous_rows=previous_rows,
+            change_events=change_events,
+            district_config=district_map,
+            score_date=snapshot_date,
+            target_weekend_date=weekend_date,
+        )
     write_change_scores_csv(change_scores, change_scores_path)
     print(f"      变化评分已写入 {change_scores_path}")
 
