@@ -8,11 +8,11 @@
 
 ## 验证信息
 
-- 最后验证：2026-07-14
-- 验证提交：`b6c4ea934be05d6272d28612ccd06d47c513e0ba`
+- 最后验证：2026-07-15
+- 验证提交：`13ba3a2`
 - 验证命令：`python3 -m unittest discover tests -v`
-- 验证结果：215 tests passed
-- 工作区状态：存在未提交的文档修改
+- 验证结果：310 tests passed
+- 工作区状态：clean
 
 ---
 
@@ -43,11 +43,12 @@
 ### 采集与快照
 
 - `src/run.py`：街区 POI 采集 → 快照 → 变化检测 → 评分 → 报告 → 地图的完整流水线
+- `src/collection_scheduler.py`：广度优先调度、自适应分页、电路熔断、QPS 控制
 - `src/brand_poi_scanner.py`：品牌 POI 扫描（text / around / grid 三种模式）
 - `src/brand_poi_snapshot.py`：品牌快照管理（CSV + JSON + manifest）
-- 快照写入 `data/poi_snapshots/{date}_poi_snapshot.csv`
+- 快照写入 `data/weekend_district_poi/{date}_poi_snapshot.csv`，附带 manifest 和归档 summary
 - 品牌快照写入 `data/brand_stores/snapshots/{date}_{city}/`
-- 缓存机制：API 响应缓存至 `data/cache/`
+- 缓存机制：API 响应缓存至 `data/cache/`，cache key 含中心坐标和 page_size
 - sample POI 回退（`data/sample_poi.csv`）
 
 ### 变化检测
@@ -84,11 +85,12 @@
 
 ```
 python3 src/run.py --weekend-date YYYY-MM-DD [options]
-  --snapshot-date   POI 快照日期（默认今天）
-  --force           忽略缓存，重新请求 API
-  --no-map          跳过地图生成
-  --map-provider    amap_js（默认）| leaflet_osm
-  --coord-mode      approx_wgs84（默认）| raw_gcj02（仅 leaflet_osm）
+  --snapshot-date      POI 快照日期（默认今天）
+  --force              忽略缓存，重新请求 API
+  --no-map             跳过地图生成
+  --map-provider       amap_js（默认）| leaflet_osm
+  --coord-mode         approx_wgs84（默认）| raw_gcj02（仅 leaflet_osm）
+  --estimate-requests  估算请求量并退出，不调用 API
 ```
 
 ```
@@ -98,20 +100,23 @@ python3 src/brand_poi_compare.py [options]
 
 ### 测试
 
-215 项测试全部通过（`python3 -m unittest discover tests -v`）。
+310 项测试全部通过（`python3 -m unittest discover tests -v`）。
 
 测试覆盖模块：
 - `test_amap_client.py`
+- `test_batch2a.py`
 - `test_brand_poi_analyzer.py`
 - `test_brand_poi_map_writer.py`
 - `test_brand_poi_scanner.py`
 - `test_brand_poi_snapshot.py`
 - `test_change_detector.py`
 - `test_change_score.py`
+- `test_collection_scheduler.py`
 - `test_district_config.py`
 - `test_geocode.py`
 - `test_map_writer.py`
 - `test_report_writer.py`
+- `test_run_compare_e2e.py`
 
 ---
 
@@ -119,18 +124,18 @@ python3 src/brand_poi_compare.py [options]
 
 | 风险 | 说明 |
 |---|---|
-| 高德数据覆盖延迟 | 新开业门店 1-4 周后才出现 POI，关店 POI 长期残留 |
-| 假新增 / 假消失 | POI 坐标漂移、楼层变化、数据源更新容易产生误报 |
-| 门店实体匹配 | 同一商场多店型并存、地址冲突、名称不标准仍是难点 |
-| 证据分级自动化 | 外部证据搜索链路的自动化和缓存尚未完成 |
+| 历史 Snapshot 无 manifest | 2026-07-08/11/12 三期无 manifest，无法与正式 baseline Compare |
+| 仅一期正式 baseline | 2026-07-15 是首期含 manifest 的 complete Snapshot，尚未执行过真实同口径 Compare |
+| 关键词命中率有限 | 11 个关键词中有 5 个（美术馆/买手店/联合办公/共享空间/工作室）在当前采样圆内零返回 |
+| 采样点单一 | 每个区域仅一个固定圆心，杨浦滨江为带状区域但使用圆形采样 |
+| 实体匹配仍是精确三字段 | `poi_id\|name\|address`，名称后缀变化导致假新增 |
 | 产品层未完成 | 当前仍是数据管道和 CLI，没有面向消费者的界面 |
-| Skill 维护 | brand-map-pipeline 仍为单文件 35 行，store-opening-watch 已拆分 |
 
 ---
 
 ## 下一阶段
 
-1. 项目基础设施完成（AGENTS.md + STATUS.md + SOUL.md 分层到位）
-2. store-opening-watch 渐进式拆分已完成，推进产物契约和证据状态统一
-3. 街区变化解释层——将变化指数转化为可读的"为什么这个街区值得关注"
-4. 用户产品层验证——确定第一版对外输出形态（报告 / 地图 / 小程序）
+1. **等待下一期真实同口径采集** — 配置已冻结，下一期 run 将自动触发 Compare（两期 fingerprint 一致，source=amap，status=complete）
+2. **执行真实跨期 Compare 验证** — 验证变化事件质量，确认新增/消失/类目变化可追溯
+3. **字段级变化检测** — 在现有匹配基础上增加 name/address/coord 变化输出
+4. **协调空间采样模型** — 优化杨浦滨江等带状区域的采样点设计
